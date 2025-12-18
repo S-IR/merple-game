@@ -1,0 +1,8 @@
+learn-sdl-gpu.exe
+learn-sdl-gpu.pdb
+src.exe
+build/*
+!build/images/
+*.pdb
+*.dll
+*.exe
