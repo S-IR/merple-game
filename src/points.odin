@@ -34,7 +34,7 @@ POINT_FRAGMENT_SHADER_SPV :: #load("../build/shader-binaries/point.fragment.spv"
 
 BottomFacedIndices := [?]u16{0, 1, 2, 0, 2, 3}
 
-RANDOM_BLUE_OPTIONS := [?]float4 {
+RANDOM_RED_OPTIONS := [?]float4 {
 	{1, 0, 0, 1},
 	{.8, 0, 0, 1},
 	{.6, 0, 0, 1},
@@ -78,7 +78,7 @@ Vertices_pipeline_init :: proc() {
 				idx(x, y + 1),
 			}
 			for _, triangleColorSpotI in TriangleColors[x][y] {
-				TriangleColors[x][y][triangleColorSpotI] = rand.choice(RANDOM_BLUE_OPTIONS[:])
+				TriangleColors[x][y][triangleColorSpotI] = rand.choice(RANDOM_RED_OPTIONS[:])
 			}
 		}
 	}

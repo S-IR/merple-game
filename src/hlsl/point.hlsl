@@ -1,7 +1,6 @@
 struct VSOutput
 {
     float4 position : SV_Position;
-    uint primitiveId : TEXCOORD0; 
 };
 struct PointSBO {
     float3 position;
@@ -28,7 +27,6 @@ VSOutput main(VSInput input)
     VSOutput output;
     PointSBO p = PositionsSBO[input.vertexId];
     output.position = mul(viewProj, float4(p.position, 1.0));
-    output.primitiveId = input.vertexId / 3; 
     return output;
 }
 #endif
@@ -41,10 +39,10 @@ struct FSOutput
     float4 color : SV_Target;
 };
 
-FSOutput main(VSOutput input)
+FSOutput main(VSOutput input, uint primitiveId : SV_PrimitiveID)
 {
     FSOutput output;
-    output.color = TriangleColorsSBO[input.primitiveId];
+    output.color = TriangleColorsSBO[primitiveId];
     return output;
 }
 #endif
