@@ -1,16 +1,17 @@
 struct VSOutput
 {
-    float3 color : TEXCOORD0;
     float4 position : SV_Position;
+    uint primitiveId : TEXCOORD0; 
 };
-
-#ifdef VERTEX
 struct PointSBO {
     float3 position;
-    float4 color;
+    float _pad;
 };
-// Two separate SBOs for positions and colors
+
 StructuredBuffer<PointSBO> PositionsSBO : register(t0, space0);
+
+#ifdef VERTEX
+
 
 cbuffer CameraUBO : register(b0, space1)
 {
@@ -24,17 +25,17 @@ struct VSInput
 
 VSOutput main(VSInput input)
 {
-VSOutput output;
-   PointSBO p = PositionsSBO[input.vertexId];
-
-   output.position = mul(viewProj, float4(p.position, 1.0));
-   output.color = p.color.xyz;
-
-   return output;
+    VSOutput output;
+    PointSBO p = PositionsSBO[input.vertexId];
+    output.position = mul(viewProj, float4(p.position, 1.0));
+    output.primitiveId = input.vertexId / 3; 
+    return output;
 }
 #endif
 
 #ifdef FRAGMENT
+StructuredBuffer<float4> TriangleColorsSBO : register(t0, space2);
+
 struct FSOutput
 {
     float4 color : SV_Target;
@@ -43,7 +44,7 @@ struct FSOutput
 FSOutput main(VSOutput input)
 {
     FSOutput output;
-    output.color = float4(input.color, 1.0);
+    output.color = TriangleColorsSBO[input.primitiveId];
     return output;
 }
 #endif

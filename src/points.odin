@@ -1,54 +1,89 @@
 package main
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
+import "core:math/rand"
 import "core:mem"
 import "core:path/filepath"
 import "core:time"
 import sdl "vendor:sdl3"
 
-PointType :: enum u8 {
-	TODO,
+
+Point :: struct {
+	pos:  float3,
+	_pad: u32,
 }
-TOTAL_POINTS :: 4
-PointSBO :: struct {
-	pos:   float3,
-	type:  u8,
-	color: float4,
-}
-Points := [TOTAL_POINTS]PointSBO {
-	{
-		{-0.5, -0.5, 0.5},
-		0,
-		{1, 0, 0, 1},
-	},
-	{
-		{-0.5, -0.5, -0.5},
-		0,
-		{0, 1, 0, 1},
-	},
-	{
-		{0.5, -0.5, -0.5},
-		0,
-		{0, 0, 1, 1},
-	},
-	{
-		{0.5, -0.5, 0.5},
-		0,
-		{1, 1, 0, 1},
-	},
-}
-PointIndices := [?]u16{0, 1, 2, 0, 2, 3}
 
 
 Point_r: struct {
-	pipeline:                   ^sdl.GPUGraphicsPipeline,
-	sbo, indices: ^sdl.GPUBuffer,
+	pipeline:                                 ^sdl.GPUGraphicsPipeline,
+	positionsSBO, triangleColorsSBO, indices: ^sdl.GPUBuffer,
+	totalPoints:                              u32,
+	totalIndices:                             u32,
 } = {}
 POINT_VERTEX_SHADER_SPV :: #load("../build/shader-binaries/point.vertex.spv")
 POINT_FRAGMENT_SHADER_SPV :: #load("../build/shader-binaries/point.fragment.spv")
 
 
+// BottomFacedVertices := [4]float3 {
+// 	{-0.5, -0.5, 0.5},
+// 	{-0.5, -0.5, -0.5},
+// 	{0.5, -0.5, -0.5},
+// 	{0.5, -0.5, 0.5},
+// }
+
+BottomFacedIndices := [?]u16{0, 1, 2, 0, 2, 3}
+
+RANDOM_BLUE_OPTIONS := [?]float4 {
+	{1, 0, 0, 1},
+	{.8, 0, 0, 1},
+	{.6, 0, 0, 1},
+	{.4, 0, 0, 1},
+	{.2, 0, 0, 1},
+}
 Vertices_pipeline_init :: proc() {
+
+	GRID_WIDTH :: 10
+	GRID_HEIGHT :: 10
+	colorDt: f32 = .05
+	Points := [GRID_WIDTH][GRID_HEIGHT]Point{}
+	PointIndices := [GRID_WIDTH][GRID_HEIGHT][len(BottomFacedIndices)]u16{}
+
+	#assert(len(BottomFacedIndices) % 3 == 0)
+
+
+	TriangleColors := [GRID_WIDTH][GRID_HEIGHT][len(BottomFacedIndices) / 3]float4{}
+
+
+	WHITE_COLOR: float4 : {1, 1, 1, 1}
+
+	idx :: proc(x, y: int) -> u16 {
+		return u16(y * GRID_WIDTH + x)
+	}
+
+	for x in 0 ..< GRID_WIDTH {
+		for y in 0 ..< GRID_HEIGHT {
+			Points[x][y].pos = {f32(x), -1, f32(y)}
+		}
+
+	}
+	for x in 0 ..< (GRID_WIDTH - 1) {
+		for y in 0 ..< (GRID_HEIGHT - 1) {
+			PointIndices[x][y] = {
+				idx(x, y),
+				idx(x + 1, y),
+				idx(x + 1, y + 1),
+				idx(x, y),
+				idx(x + 1, y + 1),
+				idx(x, y + 1),
+			}
+			for _, triangleColorSpotI in TriangleColors[x][y] {
+				TriangleColors[x][y][triangleColorSpotI] = rand.choice(RANDOM_BLUE_OPTIONS[:])
+			}
+		}
+	}
+
+
 	format := sdl.GetGPUShaderFormats(device)
 
 	vertexShader := sdl.CreateGPUShader(
@@ -76,7 +111,7 @@ Vertices_pipeline_init :: proc() {
 			stage = .FRAGMENT,
 			num_samplers = 0,
 			num_uniform_buffers = 0,
-			num_storage_buffers = 0,
+			num_storage_buffers = 1,
 			num_storage_textures = 0,
 		},
 	)
@@ -105,14 +140,15 @@ Vertices_pipeline_init :: proc() {
 		},
 	)
 
-	Point_r.sbo = sdl.CreateGPUBuffer(
+	Point_r.positionsSBO = sdl.CreateGPUBuffer(
 		device,
 		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(Points)},
 	)
-	sdl_ensure(Point_r.sbo != nil)
-	sdl.SetGPUBufferName(device, Point_r.sbo, "sbo")
-	gpu_buffer_upload(&Point_r.sbo, raw_data(Points[:]), size_of(Points))
 
+	sdl_ensure(Point_r.positionsSBO != nil)
+	sdl.SetGPUBufferName(device, Point_r.positionsSBO, "point positions")
+	gpu_buffer_upload(&Point_r.positionsSBO, raw_data(Points[:]), size_of(Points))
+	Point_r.totalPoints = size_of(Points) / size_of(Point)
 
 	Point_r.indices = sdl.CreateGPUBuffer(
 		device,
@@ -121,42 +157,61 @@ Vertices_pipeline_init :: proc() {
 	sdl_ensure(Point_r.indices != nil)
 	sdl.SetGPUBufferName(device, Point_r.indices, "indices")
 	gpu_buffer_upload(&Point_r.indices, raw_data(PointIndices[:]), size_of(PointIndices))
+	Point_r.totalIndices = size_of(PointIndices) / size_of(u16)
+
+
+	Point_r.triangleColorsSBO = sdl.CreateGPUBuffer(
+		device,
+		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(TriangleColors)},
+	)
+
+	sdl_ensure(Point_r.triangleColorsSBO != nil)
+	sdl.SetGPUBufferName(device, Point_r.triangleColorsSBO, "triangle colors")
+	gpu_buffer_upload(
+		&Point_r.triangleColorsSBO,
+		raw_data(TriangleColors[:]),
+		size_of(TriangleColors),
+	)
+
 
 	assert(Point_r.pipeline != nil)
-	assert(Point_r.sbo != nil)
+	assert(Point_r.positionsSBO != nil)
+	assert(Point_r.triangleColorsSBO != nil)
 	assert(Point_r.indices != nil)
+
 
 }
 
 points_draw :: proc(render_pass: ^^sdl.GPURenderPass, view_proj: matrix[4, 4]f32) {
 	assert(render_pass != nil && render_pass^ != nil)
-	assert(Point_r.sbo != nil)
+	assert(Point_r.positionsSBO != nil)
+	assert(Point_r.triangleColorsSBO != nil)
+
+	assert(Point_r.totalIndices > 0)
+	assert(Point_r.totalPoints > 0)
 
 
 	sdl.BindGPUGraphicsPipeline(render_pass^, Point_r.pipeline)
 
 	sdl.BindGPUIndexBuffer(render_pass^, {buffer = Point_r.indices, offset = 0}, ._16BIT)
 
-	storageBuffers := [?]^sdl.GPUBuffer{Point_r.sbo}
-	sdl.BindGPUVertexStorageBuffers(
+	sbosVertex := [?]^sdl.GPUBuffer{Point_r.positionsSBO}
+	sdl.BindGPUVertexStorageBuffers(render_pass^, 0, raw_data(sbosVertex[:]), len(sbosVertex))
+	sbosFragment := [?]^sdl.GPUBuffer{Point_r.triangleColorsSBO}
+	sdl.BindGPUFragmentStorageBuffers(
 		render_pass^,
 		0,
-		raw_data(storageBuffers[:]),
-		len(storageBuffers),
+		raw_data(sbosFragment[:]),
+		len(sbosFragment),
 	)
-	sdl.DrawGPUIndexedPrimitives(
-		render_pass^,
-		u32(len(PointIndices)),
-		len(Points),
-		0,
-		0,
-		0,
-	)
+
+	sdl.DrawGPUIndexedPrimitives(render_pass^, Point_r.totalIndices, Point_r.totalPoints, 0, 0, 0)
 
 }
 
 Vertices_pipeline_release :: proc() {
-	sdl.ReleaseGPUGraphicsPipeline(device, Point_r.pipeline); Point_r.pipeline = nil
-	sdl.ReleaseGPUBuffer(device, Point_r.sbo); Point_r.sbo = nil
-	sdl.ReleaseGPUBuffer(device, Point_r.indices); Point_r.indices = nil
+	sdl.ReleaseGPUGraphicsPipeline(device, Point_r.pipeline);Point_r.pipeline = nil
+	sdl.ReleaseGPUBuffer(device, Point_r.positionsSBO);Point_r.positionsSBO = nil
+	sdl.ReleaseGPUBuffer(device, Point_r.triangleColorsSBO);Point_r.triangleColorsSBO = nil
+	sdl.ReleaseGPUBuffer(device, Point_r.indices);Point_r.indices = nil
 }

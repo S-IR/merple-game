@@ -1,9 +1,9 @@
 package main
 import "core:fmt"
-import "core:path/filepath"
-import sdl "vendor:sdl3"
-import "core:time"
 import "core:math/rand"
+import "core:path/filepath"
+import "core:time"
+import sdl "vendor:sdl3"
 
 sdl_ensure :: proc(cond: bool, message: string = "") {
 	msg := fmt.tprintf("%s:%s\n", message, sdl.GetError())
@@ -13,7 +13,6 @@ sdl_ensure :: proc(cond: bool, message: string = "") {
 
 float3 :: [3]f32
 float4 :: [4]f32
-
 
 
 main :: proc() {
@@ -165,7 +164,7 @@ main :: proc() {
 
 
 		view, proj := Camera_view_proj(&camera)
-		view_proj := proj*view
+		view_proj := proj * view
 		sdl.PushGPUVertexUniformData(cmdBuf, 0, &view_proj, size_of(view_proj))
 		points_draw(&render_pass, proj * view)
 
