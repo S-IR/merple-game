@@ -10,7 +10,7 @@ sdl_ensure :: proc(cond: bool, message: string = "") {
 	ensure(cond, msg)
 }
 
-
+float2 :: [2]f32
 float3 :: [3]f32
 float4 :: [4]f32
 

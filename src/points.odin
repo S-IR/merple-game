@@ -1,4 +1,5 @@
 package main
+import "algorithms"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -41,34 +42,43 @@ RANDOM_RED_OPTIONS := [?]float4 {
 	{.4, 0, 0, 1},
 	{.2, 0, 0, 1},
 }
+
 Vertices_pipeline_init :: proc() {
 
-	GRID_WIDTH :: 10
-	GRID_HEIGHT :: 10
-	colorDt: f32 = .05
-	Points := [GRID_WIDTH][GRID_HEIGHT]Point{}
-	PointIndices := [GRID_WIDTH][GRID_HEIGHT][len(BottomFacedIndices)]u16{}
+	GRID_WIDTH :: f32(10)
+	GRID_HEIGHT :: f32(10)
+	WIDTH_OF_CELL :: f32(0.5)
 
-	#assert(len(BottomFacedIndices) % 3 == 0)
+	cellsX :: int(GRID_WIDTH / WIDTH_OF_CELL)
+	cellsY :: int(GRID_HEIGHT / WIDTH_OF_CELL)
 
+	// Create point array
+	Points := [cellsX][cellsY]Point{}
+	PointIndices := [cellsX - 1][cellsY - 1][len(BottomFacedIndices)]u16{}
+	TriangleColors := [cellsX - 1][cellsY - 1][len(BottomFacedIndices) / 3]float4{}
 
-	TriangleColors := [GRID_WIDTH][GRID_HEIGHT][len(BottomFacedIndices) / 3]float4{}
-
-
-	WHITE_COLOR: float4 : {1, 1, 1, 1}
-
+	// Helper index function
 	idx :: proc(x, y: int) -> u16 {
-		return u16(y * GRID_WIDTH + x)
+		return u16(y * cellsX + x)
 	}
 
-	for x in 0 ..< GRID_WIDTH {
-		for y in 0 ..< GRID_HEIGHT {
-			Points[x][y].pos = {f32(x), -1, f32(y)}
+	// Populate points with random positions inside each cell
+	for x in 0 ..< cellsX {
+		for y in 0 ..< cellsY {
+			cell_center_x := f32(x) * WIDTH_OF_CELL + WIDTH_OF_CELL * 0.5
+			cell_center_z := f32(y) * WIDTH_OF_CELL + WIDTH_OF_CELL * 0.5
+
+			rx := (rand.float32() - 0.5) * WIDTH_OF_CELL * 0.8
+			rz := (rand.float32() - 0.5) * WIDTH_OF_CELL * 0.8
+
+			Points[x][y].pos = float3{cell_center_x + rx, -1, cell_center_z + rz}
+
 		}
-
 	}
-	for x in 0 ..< (GRID_WIDTH - 1) {
-		for y in 0 ..< (GRID_HEIGHT - 1) {
+
+	// Create triangles using neighbors
+	for x in 0 ..< (cellsX - 1) {
+		for y in 0 ..< (cellsY - 1) {
 			PointIndices[x][y] = {
 				idx(x, y),
 				idx(x + 1, y),
@@ -77,13 +87,12 @@ Vertices_pipeline_init :: proc() {
 				idx(x + 1, y + 1),
 				idx(x, y + 1),
 			}
-			for _, triangleColorSpotI in TriangleColors[x][y] {
-				TriangleColors[x][y][triangleColorSpotI] = rand.choice(RANDOM_RED_OPTIONS[:])
+
+			for i in 0 ..< len(TriangleColors[x][y]) {
+				TriangleColors[x][y][i] = rand.choice(RANDOM_RED_OPTIONS[:])
 			}
 		}
 	}
-
-
 	format := sdl.GetGPUShaderFormats(device)
 
 	vertexShader := sdl.CreateGPUShader(
