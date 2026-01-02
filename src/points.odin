@@ -35,64 +35,9 @@ POINT_FRAGMENT_SHADER_SPV :: #load("../build/shader-binaries/point.fragment.spv"
 
 BottomFacedIndices := [?]u16{0, 1, 2, 0, 2, 3}
 
-RANDOM_RED_OPTIONS := [?]float4 {
-	{1, 0, 0, 1},
-	{.8, 0, 0, 1},
-	{.6, 0, 0, 1},
-	{.4, 0, 0, 1},
-	{.2, 0, 0, 1},
-}
 
 Vertices_pipeline_init :: proc() {
 
-	GRID_WIDTH :: f32(10)
-	GRID_HEIGHT :: f32(10)
-	WIDTH_OF_CELL :: f32(0.5)
-
-	cellsX :: int(GRID_WIDTH / WIDTH_OF_CELL)
-	cellsY :: int(GRID_HEIGHT / WIDTH_OF_CELL)
-
-	// Create point array
-	Points := [cellsX][cellsY]Point{}
-	PointIndices := [cellsX - 1][cellsY - 1][len(BottomFacedIndices)]u16{}
-	TriangleColors := [cellsX - 1][cellsY - 1][len(BottomFacedIndices) / 3]float4{}
-
-	// Helper index function
-	idx :: proc(x, y: int) -> u16 {
-		return u16(y * cellsX + x)
-	}
-
-	// Populate points with random positions inside each cell
-	for x in 0 ..< cellsX {
-		for y in 0 ..< cellsY {
-			cell_center_x := f32(x) * WIDTH_OF_CELL + WIDTH_OF_CELL * 0.5
-			cell_center_z := f32(y) * WIDTH_OF_CELL + WIDTH_OF_CELL * 0.5
-
-			rx := (rand.float32() - 0.5) * WIDTH_OF_CELL * 0.8
-			rz := (rand.float32() - 0.5) * WIDTH_OF_CELL * 0.8
-
-			Points[x][y].pos = float3{cell_center_x + rx, -1, cell_center_z + rz}
-
-		}
-	}
-
-	// Create triangles using neighbors
-	for x in 0 ..< (cellsX - 1) {
-		for y in 0 ..< (cellsY - 1) {
-			PointIndices[x][y] = {
-				idx(x, y),
-				idx(x + 1, y),
-				idx(x + 1, y + 1),
-				idx(x, y),
-				idx(x + 1, y + 1),
-				idx(x, y + 1),
-			}
-
-			for i in 0 ..< len(TriangleColors[x][y]) {
-				TriangleColors[x][y][i] = rand.choice(RANDOM_RED_OPTIONS[:])
-			}
-		}
-	}
 	format := sdl.GetGPUShaderFormats(device)
 
 	vertexShader := sdl.CreateGPUShader(
@@ -148,38 +93,25 @@ Vertices_pipeline_init :: proc() {
 			fragment_shader = fragmentShader,
 		},
 	)
-
 	Point_r.positionsSBO = sdl.CreateGPUBuffer(
 		device,
-		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(Points)},
+		{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(points)},
 	)
+	gpu_buffer_upload(&Point_r.positionsSBO, raw_data(points[:]), size_of(points))
+	Point_r.totalPoints = size_of(points) / size_of(Point)
 
-	sdl_ensure(Point_r.positionsSBO != nil)
-	sdl.SetGPUBufferName(device, Point_r.positionsSBO, "point positions")
-	gpu_buffer_upload(&Point_r.positionsSBO, raw_data(Points[:]), size_of(Points))
-	Point_r.totalPoints = size_of(Points) / size_of(Point)
-
-	Point_r.indices = sdl.CreateGPUBuffer(
-		device,
-		sdl.GPUBufferCreateInfo{usage = {.INDEX}, size = size_of(PointIndices)},
-	)
-	sdl_ensure(Point_r.indices != nil)
-	sdl.SetGPUBufferName(device, Point_r.indices, "indices")
-	gpu_buffer_upload(&Point_r.indices, raw_data(PointIndices[:]), size_of(PointIndices))
-	Point_r.totalIndices = size_of(PointIndices) / size_of(u16)
-
+	Point_r.indices = sdl.CreateGPUBuffer(device, {usage = {.INDEX}, size = size_of(pointIndices)})
+	gpu_buffer_upload(&Point_r.indices, raw_data(pointIndices[:]), size_of(pointIndices))
+	Point_r.totalIndices = size_of(pointIndices) / size_of(u16)
 
 	Point_r.triangleColorsSBO = sdl.CreateGPUBuffer(
 		device,
-		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(TriangleColors)},
+		{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(triangleColors)},
 	)
-
-	sdl_ensure(Point_r.triangleColorsSBO != nil)
-	sdl.SetGPUBufferName(device, Point_r.triangleColorsSBO, "triangle colors")
 	gpu_buffer_upload(
 		&Point_r.triangleColorsSBO,
-		raw_data(TriangleColors[:]),
-		size_of(TriangleColors),
+		raw_data(triangleColors[:]),
+		size_of(triangleColors),
 	)
 
 

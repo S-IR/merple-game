@@ -30,7 +30,8 @@ main :: proc() {
 	defer sdl.DestroyGPUDevice(device)
 
 	sdl_ensure(sdl.ClaimWindowForGPUDevice(device, window) != false)
-
+	
+	load_chunk()
 	Vertices_pipeline_init()
 	defer Vertices_pipeline_release()
 	depthTexture := sdl.CreateGPUTexture(

@@ -1,92 +1,93 @@
 package main
-// import "core:fmt"
-// import "core:math"
-// import "core:math/noise"
-// import "core:math/rand"
-// import "core:mem"
-// import vmem "core:mem/virtual"
-// import "vendor:raylib"
-// import "vendor:raylib/rlgl"
-// import sdl "vendor:sdl3"
+import "algorithms"
+import "core:fmt"
+import "core:math"
+import "core:math/rand"
+CHUNK_SIZE :: 16
+RENDER_DISTANCE :: 5
+MIN_Y :: -4
+MAX_Y :: 4
+CHUNK_HEIGHT :: MAX_Y - MIN_Y
+DEFAULT_SURFACE_LEVEL :: -1
 
-// CHUNK_SIZE :: 16
-// RENDER_DISTANCE :: 5
-// MIN_Y :: -1
-// MAX_Y :: 1
-// CHUNK_HEIGHT :: MAX_Y - MIN_Y
-// DEFAULT_SURFACE_LEVEL :: -1
-// X_SIZE :: 100  // World goes from -100 to 100
-// Z_SIZE :: 100  // World goes from -100 to 100
-
-// Chunk :: struct {
-// 	sbo:           ^sdl.GPUBuffer,
-// 	indexBuffer:        ^sdl.GPUBuffer,
-// 	points:        [dynamic]Point,
-// 	indexes:        [dynamic]u16,
-// 	dirty:         bool,
-// }
-
-// chunks: map[[2]i32]Chunk
-// chunksArena: vmem.Arena
-// chunksAlloc: mem.Allocator
-
-// chunks_init :: proc() {
-// 	chunksAlloc = vmem.arena_allocator(&chunksArena)
-// }
+RANDOM_RED_OPTIONS := [?]float4 {
+	{1, 0, 0, 1},
+	{.8, 0, 0, 1},
+	{.6, 0, 0, 1},
+	{.4, 0, 0, 1},
+	{.2, 0, 0, 1},
+}
+GRID_WIDTH :: f32(10)
+GRID_HEIGHT :: f32(10)
+WIDTH_OF_CELL :: f32(0.5)
 
 
-// chunks_cleanup :: proc() {
-// 	for _, chunk in chunks {
-// 		sdl.ReleaseGPUBuffer(device, chunk.sbo)
-// 		sdl.ReleaseGPUBuffer(device, chunk.indexBuffer)
-// 	}
-// 	free_all(chunksAlloc)
-// 	delete(chunks)
-// }
+cellsX: int : auto_cast (GRID_WIDTH / WIDTH_OF_CELL)
+cellsY: int : auto_cast (GRID_HEIGHT / WIDTH_OF_CELL)
+
+// Create point array
+points := [cellsX][cellsY]Point{}
+pointIndices := [cellsX - 1][cellsY - 1][len(BottomFacedIndices)]u16{}
+triangleColors := [cellsX - 1][cellsY - 1][len(BottomFacedIndices) / 3]float4{}
 
 
-// update_loaded_chunks :: proc(camera: ^Camera, chunks: ^map[[2]i32]Chunk) {
-// 	assert(chunks != nil)
-// 	playerChunk := [2]i32 {
-// 		i32(math.floor(f64(camera.pos.x) / CHUNK_SIZE)),
-// 		i32(math.floor(f64(camera.pos.z) / CHUNK_SIZE)),
-// 	}
-// 	toLoad := make([dynamic][2]i32, context.temp_allocator)
-// 	for cx := playerChunk[0] - RENDER_DISTANCE; cx <= playerChunk[0] + RENDER_DISTANCE; cx += 1 {
-// 		for cz := playerChunk[1] - RENDER_DISTANCE;
-// 		    cz <= playerChunk[1] + RENDER_DISTANCE;
-// 		    cz += 1 {
-// 			key := [2]i32{cx, cz}
-// 			if key not_in chunks^ {
-// 				append(&toLoad, key)
-// 			}
-// 		}
-// 	}
-// 	HYSTERESIS :: 2
-// 	toUnload := make([dynamic][2]i32, context.temp_allocator)
-// 	for key in chunks {
-// 		dx := math.abs(key[0] - playerChunk[0])
-// 		dz := math.abs(key[1] - playerChunk[1])
-// 		if dx > RENDER_DISTANCE + HYSTERESIS || dz > RENDER_DISTANCE + HYSTERESIS {
-// 			append(&toUnload, key)
-// 		}
-// 	}
-// 	for key in toUnload {
-// 		chunk := chunks^[key]
-// 		assert(chunk.sbo != nil)
-// 		assert(chunk.indexBuffer != nil)
-// 		sdl.ReleaseGPUBuffer(device, chunk.sbo)
-// 		sdl.ReleaseGPUBuffer(device, chunk.indexBuffer)
-// 		delete(chunk.points)
-// 		delete(chunk.indexes)
-// 		delete_key(chunks, key)
-// 	}
-// 	for key in toLoad {
-// 		generate_chunk(key, chunks)
-// 	}
-// 	for key, &c in chunks {
-// 		if c.dirty {
-// 			rebuild_visible(&c, key, chunks)
-// 		}
-// 	}
-// }
+load_chunk :: proc() {
+
+
+	idx :: proc(x, y: int) -> u16 {
+		return u16(y * cellsX + x)
+	}
+
+	for x in 0 ..< cellsX {
+		for y in 0 ..< cellsY {
+			cellCenterX := f32(x) * WIDTH_OF_CELL + WIDTH_OF_CELL * 0.5
+			cellCenterZ := f32(y) * WIDTH_OF_CELL + WIDTH_OF_CELL * 0.5
+
+
+			rx := (rand.float32() - 0.5) * WIDTH_OF_CELL * 0.8
+			rz := (rand.float32() - 0.5) * WIDTH_OF_CELL * 0.8
+
+			posX := cellCenterX + rx
+			posZ := cellCenterZ + rz
+			OCTAVES :: 3
+			PERSISTENCE :: .5
+			LACUNARITY :: 1.0
+			AMPLITUDE :: 3.0
+
+			SCALE :: 0.05
+
+			surfaceLevelF :=
+				DEFAULT_SURFACE_LEVEL +
+				algorithms.simplex_octaves_2d(
+					{posX * SCALE, posZ * SCALE},
+					i64(seed),
+					OCTAVES,
+					PERSISTENCE,
+					LACUNARITY,
+				) *
+					AMPLITUDE
+			surface_y := i32(math.round(surfaceLevelF))
+			surface_y = math.clamp(surface_y, MIN_Y + 1, MAX_Y)
+			surface_ly := surface_y - MIN_Y
+			points[x][y].pos = float3{posX, f32(surface_ly), posZ}
+
+		}
+	}
+
+	for x in 0 ..< (cellsX - 1) {
+		for y in 0 ..< (cellsY - 1) {
+			pointIndices[x][y] = {
+				idx(x, y),
+				idx(x + 1, y),
+				idx(x + 1, y + 1),
+				idx(x, y),
+				idx(x + 1, y + 1),
+				idx(x, y + 1),
+			}
+
+			for i in 0 ..< len(triangleColors[x][y]) {
+				triangleColors[x][y][i] = rand.choice(RANDOM_RED_OPTIONS[:])
+			}
+		}
+	}
+}
