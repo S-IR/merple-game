@@ -30,8 +30,9 @@ main :: proc() {
 	defer sdl.DestroyGPUDevice(device)
 
 	sdl_ensure(sdl.ClaimWindowForGPUDevice(device, window) != false)
-	
-	load_chunk()
+
+	chunks_init()
+	defer chunks_release()
 	Vertices_pipeline_init()
 	defer Vertices_pipeline_release()
 	depthTexture := sdl.CreateGPUTexture(
@@ -167,8 +168,7 @@ main :: proc() {
 		view, proj := Camera_view_proj(&camera)
 		view_proj := proj * view
 		sdl.PushGPUVertexUniformData(cmdBuf, 0, &view_proj, size_of(view_proj))
-		points_draw(&render_pass, proj * view)
-
+		chunks_draw(&render_pass, proj * view)
 		sdl.EndGPURenderPass(render_pass)
 	}
 }

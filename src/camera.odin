@@ -50,36 +50,36 @@ Camera_new :: proc(
 	return c
 }
 Camera_process_keyboard_movement :: proc(c: ^Camera) {
-	keys := sdl.GetKeyboardState(nil)
+    keys := sdl.GetKeyboardState(nil)
 
-	movementVector: float3 = {}
-	normalizedFront := linalg.normalize(float3{c.front.x, 0, c.front.z})
-	normalizedRight := linalg.normalize(float3{c.right.x, 0, c.right.z})
+    movementVector: float3 = {}
+    normalizedFront := linalg.normalize(float3{c.front.x, 0, c.front.z})
+    normalizedRight := linalg.normalize(float3{c.right.x, 0, c.right.z})
 
-	if keys[sdl.Scancode.W] != false {
-		movementVector += normalizedFront
-	}
-	if keys[sdl.Scancode.S] != false {
-		movementVector -= normalizedFront
-	}
-	if keys[sdl.Scancode.A] != false {
-		movementVector -= normalizedRight
-	}
-	if keys[sdl.Scancode.D] != false {
-		movementVector += normalizedRight
-	}
+    if keys[sdl.Scancode.W] != false {
+        movementVector += normalizedFront
+    }
+    if keys[sdl.Scancode.S] != false {
+        movementVector -= normalizedFront
+    }
+    if keys[sdl.Scancode.A] != false {
+        movementVector -= normalizedRight
+    }
+    if keys[sdl.Scancode.D] != false {
+        movementVector += normalizedRight
+    }
 
-	if keys[sdl.Scancode.SPACE] != false {
-		movementVector += WORLD_UP
-	}
-	if keys[sdl.Scancode.LALT] != false || keys[sdl.Scancode.RALT] != false {
-		movementVector -= WORLD_UP
-	}
+    if keys[sdl.Scancode.SPACE] != false {
+        movementVector += WORLD_UP
+    }
+    if keys[sdl.Scancode.LALT] != false || keys[sdl.Scancode.RALT] != false {
+        movementVector -= WORLD_UP
+    }
 
-	if linalg.length(movementVector) <= 0 do return
+    if linalg.length(movementVector) <= 0 do return
 
-	delta := linalg.normalize(movementVector) * c.movement_speed * f32(dt)
-	c.pos += delta
+    delta := linalg.normalize(movementVector) * c.movement_speed * f32(dt)
+    c.pos += delta
 }
 Camera_process_mouse_movement :: proc(c: ^Camera, received_xOffset, received_yOffset: f32) {
 	xOffset := received_xOffset * c.mouse_sensitivity
@@ -126,35 +126,32 @@ Camera_rotate :: proc(c: ^Camera) {
 	c.up = linalg.normalize(linalg.cross(c.right, c.front))
 }
 Frustum :: struct {
-	planes: [6]float4,
+    planes: [6]float4,
 }
-Plane :: struct {
-	point_on_plane: float3,
-	normal:         float3,
-}
+Plane :: struct { point_on_plane: float3, normal: float3 }
 
 frustum_from_camera :: proc(c: ^Camera) -> [6]Plane {
-	aspect := f32(screenWidth) / f32(screenHeight)
-	half_v_side := far_plane * math.tan_f32(c.fov * linalg.RAD_PER_DEG * 0.5)
-	half_h_side := half_v_side * aspect
-	front_mult_far := c.front * far_plane
+    aspect := f32(screenWidth) / f32(screenHeight)
+    half_v_side := far_plane * math.tan_f32(c.fov * linalg.RAD_PER_DEG * 0.5)
+    half_h_side := half_v_side * aspect
+    front_mult_far := c.front * far_plane
 
-	near_center := c.pos + c.front * near_plane
+    near_center := c.pos + c.front * near_plane
 
-	return [6]Plane {
-		{near_center, c.front},
-		{c.pos + front_mult_far, -c.front},
-		{c.pos, linalg.normalize(linalg.cross(front_mult_far - c.right * half_h_side, c.up))},
-		{c.pos, linalg.normalize(linalg.cross(c.up, front_mult_far + c.right * half_h_side))},
-		{c.pos, linalg.normalize(linalg.cross(c.right, front_mult_far - c.up * half_v_side))},
-		{c.pos, linalg.normalize(linalg.cross(front_mult_far + c.up * half_v_side, c.right))},
-	}
+    return [6]Plane {
+        {near_center,      c.front},
+        {c.pos + front_mult_far, -c.front},
+        {c.pos,             linalg.normalize(linalg.cross(front_mult_far - c.right * half_h_side, c.up))},
+        {c.pos,             linalg.normalize(linalg.cross(c.up, front_mult_far + c.right * half_h_side))},
+        {c.pos,             linalg.normalize(linalg.cross(c.right, front_mult_far - c.up * half_v_side))},
+        {c.pos,             linalg.normalize(linalg.cross(front_mult_far + c.up * half_v_side, c.right))},
+    }
 }
 aabb_vs_plane :: proc(min, max, point: float3, normal: float3) -> bool {
-	p := float3 {
-		normal.x >= 0 ? max.x : min.x,
-		normal.y >= 0 ? max.y : min.y,
-		normal.z >= 0 ? max.z : min.z,
-	}
-	return linalg.dot(normal, p - point) >= 0
+    p := float3 {
+        normal.x >= 0 ? max.x : min.x,
+        normal.y >= 0 ? max.y : min.y,
+        normal.z >= 0 ? max.z : min.z,
+    }
+    return linalg.dot(normal, p - point) >= 0
 }
