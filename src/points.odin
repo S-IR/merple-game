@@ -119,48 +119,48 @@ Vertices_pipeline_release :: proc() {
 
 }
 
-is_point_visible :: proc(chunk: ^Chunk, x, y, z: int) -> bool {
-	p := chunk.points[x][y][z]
-	if p.type == .Air {
-		return false
-	}
+// is_point_visible :: proc(chunk: ^Chunk, x, y, z: int) -> bool {
+// 	p := chunk.points[x][y][z]
+// 	if p.type == .Air {
+// 		return false
+// 	}
 
-	dirs := [][3]int{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}}
+// 	dirs := [][3]int{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}}
 
-	for d in dirs {
-		nx := x + d[0]
-		ny := y + d[1]
-		nz := z + d[2]
+// 	for d in dirs {
+// 		nx := x + d[0]
+// 		ny := y + d[1]
+// 		nz := z + d[2]
 
-		if nx < 0 ||
-		   nx >= CELLS_PER_X_DIR ||
-		   ny < 0 ||
-		   ny >= CELLS_PER_Y_DIR ||
-		   nz < 0 ||
-		   nz >= CELLS_PER_Z_DIR {
-			return true
-		}
+// 		if nx < 0 ||
+// 		   nx >= POINTS_PER_X_DIR ||
+// 		   ny < 0 ||
+// 		   ny >= POINTS_PER_Y_DIR ||
+// 		   nz < 0 ||
+// 		   nz >= POINTS_PER_Z_DIR {
+// 			return true
+// 		}
 
-		if chunk.points[nx][ny][nz].type == .Air {
-			return true
-		}
-	}
+// 		if chunk.points[nx][ny][nz].type == .Air {
+// 			return true
+// 		}
+// 	}
 
-	return false
-}
+// 	return false
+// }
 
-get_visible_points :: proc(chunk: ^Chunk, alloc := context.temp_allocator) -> [dynamic]int3 {
-	visibles := make([dynamic]int3, 0, alloc)
+// get_visible_points :: proc(chunk: ^Chunk, alloc := context.temp_allocator) -> [dynamic]int3 {
+// 	visibles := make([dynamic]int3, 0, alloc)
 
-	for x in 0 ..< CELLS_PER_X_DIR {
-		for y in 0 ..< CELLS_PER_Y_DIR {
-			for z in 0 ..< CELLS_PER_Z_DIR {
-				if is_point_visible(chunk, x, y, z) {
-					append(&visibles, int3{i32(x), i32(y), i32(z)})
-				}
-			}
-		}
-	}
+// 	for x in 0 ..< POINTS_PER_X_DIR {
+// 		for y in 0 ..< POINTS_PER_Y_DIR {
+// 			for z in 0 ..< POINTS_PER_Z_DIR {
+// 				if is_point_visible(chunk, x, y, z) {
+// 					append(&visibles, int3{i32(x), i32(y), i32(z)})
+// 				}
+// 			}
+// 		}
+// 	}
 
-	return visibles
-}
+// 	return visibles
+// }
