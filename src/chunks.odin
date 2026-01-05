@@ -65,8 +65,16 @@ RANDOM_RED_OPTIONS := [?]float4 {
 	{.2, 0, 0, 1},
 }
 
+
 SCALAR_FIELD := [POINTS_PER_X_DIR * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR]f32{}
+EXISTING_POINT_INDEX := [(POINTS_PER_X_DIR - 1) *
+(POINTS_PER_Y_DIR - 1) *
+(POINTS_PER_Z_DIR - 1) *
+12]int{}
 VERTEX_CREATED := [POINTS_PER_X_DIR * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR]bool{}
+index_into_point_arrays :: proc(x, y, z: int) -> int {
+	return x * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR + y * POINTS_PER_Z_DIR + z
+}
 chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 	chunk := &Chunks[x_idx][y_idx]
 	chunk.pos = pos
@@ -79,6 +87,8 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 
 	defer SCALAR_FIELD = {}
 	defer VERTEX_CREATED = {}
+	defer EXISTING_POINT_INDEX = {}
+	for &p in EXISTING_POINT_INDEX do p = -1
 	for x in 0 ..< POINTS_PER_X_DIR {
 		for y in 0 ..< POINTS_PER_Y_DIR {
 			for z in 0 ..< POINTS_PER_Z_DIR {
@@ -86,13 +96,11 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 					transmute(i64)seed,
 					{f64(x) * .05, f64(y) * .05, f64(z) * .05},
 				)
-				SCALAR_FIELD[x * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR + y * POINTS_PER_Z_DIR + z] =
-					res
+				SCALAR_FIELD[index_into_point_arrays(x, y, z)] = res
 			}
 		}
 	}
 	THRESHOLD: f32 : 0
-	currentPointCount := 0
 
 	for x in 0 ..< POINTS_PER_X_DIR - 1 {
 		for y in 0 ..< POINTS_PER_Y_DIR - 1 {
@@ -102,8 +110,7 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 					xI := int(pointOffset.x) + x
 					yI := int(pointOffset.y) + y
 					zI := int(pointOffset.z) + z
-					noiseVal :=
-						SCALAR_FIELD[xI * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR + yI * POINTS_PER_Z_DIR + zI]
+					noiseVal := SCALAR_FIELD[index_into_point_arrays(xI, yI, zI)]
 					if noiseVal > THRESHOLD do configIdx += 1 << uint(i)
 				}
 				assert(configIdx < 256)
@@ -115,40 +122,38 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 					edge2 := int(triangulation[i + 1])
 					edge3 := int(triangulation[i + 2])
 
-					p1a := POINT_OFFSETS[EDGES[edge1][0]]
-					p1b := POINT_OFFSETS[EDGES[edge1][1]]
-					p2a := POINT_OFFSETS[EDGES[edge2][0]]
-					p2b := POINT_OFFSETS[EDGES[edge2][1]]
-					p3a := POINT_OFFSETS[EDGES[edge3][0]]
-					p3b := POINT_OFFSETS[EDGES[edge3][1]]
+					edges := [3]int{edge1, edge2, edge3}
 
-					vert1 :=
-						cubePos +
-						(float3{f32(p1a.x), f32(p1a.y), f32(p1a.z)} +
-								float3{f32(p1b.x), f32(p1b.y), f32(p1b.z)}) *
-							0.5
-					vert2 :=
-						cubePos +
-						(float3{f32(p2a.x), f32(p2a.y), f32(p2a.z)} +
-								float3{f32(p2b.x), f32(p2b.y), f32(p2b.z)}) *
-							0.5
-					vert3 :=
-						cubePos +
-						(float3{f32(p3a.x), f32(p3a.y), f32(p3a.z)} +
-								float3{f32(p3b.x), f32(p3b.y), f32(p3b.z)}) *
-							0.5
+					for j in 0 ..< 3 {
+						edge := edges[j]
+						cache_idx :=
+							(x * (POINTS_PER_Y_DIR - 1) * (POINTS_PER_Z_DIR - 1) * 12) +
+							(y * (POINTS_PER_Z_DIR - 1) * 12) +
+							(z * 12) +
+							edge
 
-					append(&visiblePointCoords, vert1)
-					append(&visiblePointCoords, vert2)
-					append(&visiblePointCoords, vert3)
-					append(&colors, float4{rand.float32(), rand.float32(), rand.float32(), 1})
-					append(&colors, float4{rand.float32(), rand.float32(), rand.float32(), 1})
-					append(&colors, float4{rand.float32(), rand.float32(), rand.float32(), 1})
-					append(&indices, u16(currentPointCount + 0))
-					append(&indices, u16(currentPointCount + 1))
-					append(&indices, u16(currentPointCount + 2))
-					currentPointCount += 3
+						if EXISTING_POINT_INDEX[cache_idx] != -1 {
+							append(&indices, u16(EXISTING_POINT_INDEX[cache_idx]))
+						} else {
+							a := POINT_OFFSETS[EDGES[edge][0]]
+							b := POINT_OFFSETS[EDGES[edge][1]]
+							pos :=
+								cubePos +
+								(float3{f32(a.x), f32(a.y), f32(a.z)} +
+										float3{f32(b.x), f32(b.y), f32(b.z)}) *
+									0.5
 
+							append(&visiblePointCoords, pos)
+							append(
+								&colors,
+								float4{rand.float32(), rand.float32(), rand.float32(), 1},
+							)
+
+							new_idx := len(visiblePointCoords) - 1
+							EXISTING_POINT_INDEX[cache_idx] = new_idx
+							append(&indices, u16(new_idx))
+						}
+					}
 				}
 
 
