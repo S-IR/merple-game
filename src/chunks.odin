@@ -21,13 +21,17 @@ CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
 WIDTH_OF_CELL :: f32(1)
-POINTS_PER_X_DIR: int : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
-POINTS_PER_Z_DIR: int : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
-POINTS_PER_Y_DIR: int : auto_cast ((MAX_Y - MIN_Y) / WIDTH_OF_CELL)
+CUBES_PER_X_DIR: int : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
+CUBES_PER_Z_DIR: int : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
+CUBES_PER_Y_DIR: int : auto_cast ((MAX_Y - MIN_Y) / WIDTH_OF_CELL)
+
+VERTS_PER_X_DIR: int : CUBES_PER_X_DIR + 1
+VERTS_PER_Y_DIR: int : CUBES_PER_Y_DIR + 1
+VERTS_PER_Z_DIR: int : CUBES_PER_Z_DIR + 1
 
 Chunk :: struct {
 	pos:          int2,
-	points:       [POINTS_PER_X_DIR * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR]Point,
+	points:       [CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR]Point,
 	pointsSBO:    ^sdl.GPUBuffer,
 	indices:      ^sdl.GPUBuffer,
 	colors:       ^sdl.GPUBuffer,
@@ -37,7 +41,7 @@ Chunk :: struct {
 	alloc:        mem.Allocator,
 }
 chunk_point_get :: proc(c: ^Chunk, x, y, z: int) -> Point {
-	return c.points[x * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR + y * POINTS_PER_Z_DIR + z]
+	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
 CHUNKS_PER_DIRECTION :: 1
@@ -65,15 +69,12 @@ RANDOM_RED_OPTIONS := [?]float4 {
 	{.2, 0, 0, 1},
 }
 
-
-SCALAR_FIELD := [POINTS_PER_X_DIR * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR]f32{}
-EXISTING_POINT_INDEX := [(POINTS_PER_X_DIR - 1) *
-(POINTS_PER_Y_DIR - 1) *
-(POINTS_PER_Z_DIR - 1) *
-12]int{}
-VERTEX_CREATED := [POINTS_PER_X_DIR * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR]bool{}
+EXISTING_VERTICES_MAPPER := [(CUBES_PER_X_DIR + 1) *
+(CUBES_PER_Y_DIR + 1) *
+(CUBES_PER_Z_DIR + 1)]int{}
+// CUBE_NOISE_FIELD := [(CUBES_PER_X_DIR) * (CUBES_PER_Y_DIR) * (CUBES_PER_Z_DIR)]f32{}
 index_into_point_arrays :: proc(x, y, z: int) -> int {
-	return x * POINTS_PER_Y_DIR * POINTS_PER_Z_DIR + y * POINTS_PER_Z_DIR + z
+	return x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z
 }
 chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 	chunk := &Chunks[x_idx][y_idx]
@@ -84,100 +85,59 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 	indices := make([dynamic]u16, context.temp_allocator)
 	colors := make([dynamic]float4, context.temp_allocator)
 
-
-	defer SCALAR_FIELD = {}
-	defer VERTEX_CREATED = {}
-	defer EXISTING_POINT_INDEX = {}
-	for &p in EXISTING_POINT_INDEX do p = -1
-	for x in 0 ..< POINTS_PER_X_DIR {
-		for y in 0 ..< POINTS_PER_Y_DIR {
-			for z in 0 ..< POINTS_PER_Z_DIR {
+	for &v in EXISTING_VERTICES_MAPPER do v = -1
+	defer EXISTING_VERTICES_MAPPER = {}
+	THRESHOLD: f32 : 0.0
+	for x in 0 ..< CUBES_PER_X_DIR {
+		for y in 0 ..< CUBES_PER_Y_DIR {
+			for z in 0 ..< CUBES_PER_Z_DIR {
 				res := noise.noise_3d_improve_xz(
 					transmute(i64)seed,
 					{f64(x) * .05, f64(y) * .05, f64(z) * .05},
 				)
-				SCALAR_FIELD[index_into_point_arrays(x, y, z)] = res
-			}
-		}
-	}
-	THRESHOLD: f32 : 0
+				// CUBE_NOISE_FIELD[index_into_point_arrays(x, y, z)] = res
+				if res < THRESHOLD do continue
+				coord := float3{f32(x), f32(y), f32(z)}
+				startingVisiblePointLen := u16(len(visiblePointCoords))
+				calculate_existinv_vert_index := proc(xyzCoord: float3, vert: float3) -> int {
+					vertIndex := xyzCoord + (vert + .5)
+					return(
+						int(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
+						int(vertIndex.y) * VERTS_PER_Z_DIR +
+						int(vertIndex.z) \
+					)
 
-	for x in 0 ..< POINTS_PER_X_DIR - 1 {
-		for y in 0 ..< POINTS_PER_Y_DIR - 1 {
-			for z in 0 ..< POINTS_PER_Z_DIR - 1 {
-				configIdx: uint = 0
-				for pointOffset, i in POINT_OFFSETS {
-					xI := int(pointOffset.x) + x
-					yI := int(pointOffset.y) + y
-					zI := int(pointOffset.z) + z
-					noiseVal := SCALAR_FIELD[index_into_point_arrays(xI, yI, zI)]
-					if noiseVal > THRESHOLD do configIdx += 1 << uint(i)
 				}
-				assert(configIdx < 256)
-				triangulation := TRIANGULATION_TABLE[configIdx]
-				cubePos := float3{f32(x), f32(y), f32(z)}
+				for vert, i in cubeVertices {
+					existingVertIdx := calculate_existinv_vert_index(coord, vert)
+					assert(existingVertIdx < len(EXISTING_VERTICES_MAPPER))
 
-				for i := 0; i < len(triangulation) && triangulation[i] != -1; i += 3 {
-					edge1 := int(triangulation[i])
-					edge2 := int(triangulation[i + 1])
-					edge3 := int(triangulation[i + 2])
-
-					edges := [3]int{edge1, edge2, edge3}
-
-					for j in 0 ..< 3 {
-						edge := edges[j]
-						cache_idx :=
-							(x * (POINTS_PER_Y_DIR - 1) * (POINTS_PER_Z_DIR - 1) * 12) +
-							(y * (POINTS_PER_Z_DIR - 1) * 12) +
-							(z * 12) +
-							edge
-
-						if EXISTING_POINT_INDEX[cache_idx] != -1 {
-							append(&indices, u16(EXISTING_POINT_INDEX[cache_idx]))
-						} else {
-							a := POINT_OFFSETS[EDGES[edge][0]]
-							b := POINT_OFFSETS[EDGES[edge][1]]
-							pos :=
-								cubePos +
-								(float3{f32(a.x), f32(a.y), f32(a.z)} +
-										float3{f32(b.x), f32(b.y), f32(b.z)}) *
-									0.5
-
-							append(&visiblePointCoords, pos)
-							append(
-								&colors,
-								float4{rand.float32(), rand.float32(), rand.float32(), 1},
-							)
-
-							new_idx := len(visiblePointCoords) - 1
-							EXISTING_POINT_INDEX[cache_idx] = new_idx
-							append(&indices, u16(new_idx))
-						}
+					if EXISTING_VERTICES_MAPPER[existingVertIdx] == -1 {
+						EXISTING_VERTICES_MAPPER[existingVertIdx] = len(visiblePointCoords)
+						jitterX := rand.float32()
+						jitterY := rand.float32()
+						jitterZ := rand.float32()
+						append(
+							&visiblePointCoords,
+							coord + vert + float3{jitterX, jitterY, jitterZ},
+						)
+						append(&colors, float4{rand.float32(), rand.float32(), rand.float32(), 1})
 					}
 				}
+				for index in cubeIndices {
+					vert := cubeVertices[index]
+					existingIdx := calculate_existinv_vert_index(coord, vert)
+					assert(existingIdx != -1)
+					assert(existingIdx < len(EXISTING_VERTICES_MAPPER))
+
+					append(&indices, u16(EXISTING_VERTICES_MAPPER[existingIdx]))
 
 
-				// for edgeIndex in triangulation {
-				// 	if edgeIndex < 0 do break
-				// 	pointIndices := EDGES[edgeIndex]
-				// 	pointA := POINT_OFFSETS[pointIndices[0]]
-				// 	pointB := POINT_OFFSETS[pointIndices[1]]
-
-				// 	posA := float3{f32(x) + pointA.x, f32(y) + pointA.y, f32(z) + pointA.z}
-				// 	posB := float3{f32(x) + pointB.x, f32(y) + pointB.y, f32(z) + pointB.z}
-				// 	position := (posA + posB) * .5
-
-				// 	baseVertexIndex := u32(len(visiblePointCoords))
-
-
-				// 	append(&visiblePointCoords, position)
-				// }
+				}
 			}
 		}
 	}
 
-
-	ISO_LEVEL :: 0.0
 
 	assert(len(visiblePointCoords) > 0)
 	assert(len(indices) > 0)
