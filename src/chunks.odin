@@ -44,7 +44,7 @@ chunk_point_get :: proc(c: ^Chunk, x, y, z: int) -> Point {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
-CHUNKS_PER_DIRECTION :: 1
+CHUNKS_PER_DIRECTION :: 3
 Chunks := [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]Chunk{}
 chunks_init :: proc() {
 	for &xChunk, x in Chunks {
@@ -69,9 +69,7 @@ RANDOM_RED_OPTIONS := [?]float4 {
 	{.2, 0, 0, 1},
 }
 
-EXISTING_VERTICES_MAPPER := [(CUBES_PER_X_DIR + 1) *
-(CUBES_PER_Y_DIR + 1) *
-(CUBES_PER_Z_DIR + 1)]int{}
+EXISTING_VERTICES_MAPPER := [VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR]int{}
 // CUBE_NOISE_FIELD := [(CUBES_PER_X_DIR) * (CUBES_PER_Y_DIR) * (CUBES_PER_Z_DIR)]f32{}
 index_into_point_arrays :: proc(x, y, z: int) -> int {
 	return x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z
@@ -87,17 +85,25 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 
 	for &v in EXISTING_VERTICES_MAPPER do v = -1
 	defer EXISTING_VERTICES_MAPPER = {}
-	THRESHOLD: f32 : 0.0
+	THRESHOLD: f64 : 0.0
+	chunkXYZ := float3{f32(pos[0]), 0, f32(pos[1])}
 	for x in 0 ..< CUBES_PER_X_DIR {
 		for y in 0 ..< CUBES_PER_Y_DIR {
 			for z in 0 ..< CUBES_PER_Z_DIR {
-				res := noise.noise_3d_improve_xz(
+				SCALE :: .05
+				OCTAVES :: 6
+				PERSISTENCE :: .25
+				LACUNARITY :: 3.0
+				res := algorithms.simplex_octaves_3d(
+					{f32(x), f32(y), f32(z)} * SCALE,
 					transmute(i64)seed,
-					{f64(x) * .05, f64(y) * .05, f64(z) * .05},
+					OCTAVES,
+					PERSISTENCE,
+					LACUNARITY,
 				)
 				// CUBE_NOISE_FIELD[index_into_point_arrays(x, y, z)] = res
 				if res < THRESHOLD do continue
-				coord := float3{f32(x), f32(y), f32(z)}
+				coordInChunk := float3{f32(x), f32(y), f32(z)}
 				startingVisiblePointLen := u16(len(visiblePointCoords))
 				calculate_existinv_vert_index := proc(xyzCoord: float3, vert: float3) -> int {
 					vertIndex := xyzCoord + (vert + .5)
@@ -109,7 +115,7 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 
 				}
 				for vert, i in cubeVertices {
-					existingVertIdx := calculate_existinv_vert_index(coord, vert)
+					existingVertIdx := calculate_existinv_vert_index(coordInChunk, vert)
 					assert(existingVertIdx < len(EXISTING_VERTICES_MAPPER))
 
 					if EXISTING_VERTICES_MAPPER[existingVertIdx] == -1 {
@@ -119,14 +125,14 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 						jitterZ := rand.float32()
 						append(
 							&visiblePointCoords,
-							coord + vert + float3{jitterX, jitterY, jitterZ},
+							chunkXYZ + coordInChunk + vert + float3{jitterX, jitterY, jitterZ},
 						)
 						append(&colors, float4{rand.float32(), rand.float32(), rand.float32(), 1})
 					}
 				}
 				for index in cubeIndices {
 					vert := cubeVertices[index]
-					existingIdx := calculate_existinv_vert_index(coord, vert)
+					existingIdx := calculate_existinv_vert_index(coordInChunk, vert)
 					assert(existingIdx != -1)
 					assert(existingIdx < len(EXISTING_VERTICES_MAPPER))
 
