@@ -45,21 +45,27 @@ chunk_point_get :: proc(c: ^Chunk, x, y, z: int) -> Point {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
-CHUNKS_PER_DIRECTION :: 3
+CHUNKS_PER_DIRECTION :: 5
+
 Chunks := [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]Chunk{}
-chunks_init :: proc() {
-	for &xChunk, x in Chunks {
-		for &chunk, y in xChunk {
-			chunk_init(
-				x,
-				y,
-				int2 {
-					i32(x - CHUNKS_PER_DIRECTION / 2) * CHUNK_SIZE,
-					i32(y - CHUNKS_PER_DIRECTION / 2) * CHUNK_SIZE,
-				},
-			)
+CHUNK_MIDDLE_X_INDEX :: (CHUNKS_PER_DIRECTION / 2)
+CHUNK_MIDDLE_Z_INDEX :: (CHUNKS_PER_DIRECTION / 2)
+
+ChunkAtTheCenter := int2{}
+chunks_init :: proc(c: ^Camera) {
+	centerChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
+	half :: CHUNKS_PER_DIRECTION / 2
+	for x in 0 ..< CHUNKS_PER_DIRECTION {
+		for z in 0 ..< CHUNKS_PER_DIRECTION {
+			relX := i32(x - half)
+			relZ := i32(z - half)
+			worldChunkCoordX := centerChunk[0] + relX
+			worldChunkCoordZ := centerChunk[1] + relZ
+			pos := int2{worldChunkCoordX * CHUNK_SIZE, worldChunkCoordZ * CHUNK_SIZE}
+			chunk_init(x, z, pos)
 		}
 	}
+	ChunkAtTheCenter = Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos
 }
 
 RANDOM_RED_OPTIONS := [?]float4 {
@@ -75,8 +81,8 @@ EXISTING_VERTICES_MAPPER := [VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR
 index_into_point_arrays :: proc(x, y, z: int) -> int {
 	return x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z
 }
-chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
-	chunk := &Chunks[x_idx][y_idx]
+chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
+	chunk := &Chunks[xIdx][zIdx]
 	chunk.pos = pos
 	chunk.alloc = virtual.arena_allocator(&chunk.arena)
 
@@ -97,7 +103,7 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 				PERSISTENCE :: .25
 				LACUNARITY :: 3.0
 				res := algorithms.simplex_octaves_3d(
-					{f32(x), f32(y + MIN_Y), f32(z)} * SCALE,
+					chunkXYZ + {f32(x), f32(y + MIN_Y), f32(z)} * SCALE,
 					transmute(i64)seed,
 					OCTAVES,
 					PERSISTENCE,
@@ -192,7 +198,127 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 	assert(chunk.totalPoints > 0)
 	assert(chunk.totalIndices > 0)
 }
+chunks_shift_per_player_movement :: proc(c: ^Camera) {
 
+	xzOfCurrentCenterChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
+	xzOfPrevCenterChunk := Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos / CHUNK_SIZE
+
+
+	if xzOfCurrentCenterChunk == xzOfPrevCenterChunk do return
+
+
+	delta := xzOfCurrentCenterChunk - xzOfPrevCenterChunk
+	CHUNKS_PER_DIRECTION_HALF := CHUNKS_PER_DIRECTION / 2
+
+	if delta.x != 0 {
+		count := abs(delta.x)
+		for i in 0 ..< count {
+			if delta.x > 0 {
+				for z in 0 ..< CHUNKS_PER_DIRECTION {
+					chunk_release(&Chunks[0][z])
+				}
+				for x in 0 ..< CHUNKS_PER_DIRECTION - 1 {
+					for z in 0 ..< CHUNKS_PER_DIRECTION {
+						Chunks[x][z] = Chunks[x + 1][z]
+						Chunks[x + 1][z].pointsSBO = nil
+						Chunks[x + 1][z].indices = nil
+						Chunks[x + 1][z].colors = nil
+						Chunks[x + 1][z].arena = {}
+						Chunks[x + 1][z].alloc = {}
+					}
+				}
+				for z in 0 ..< CHUNKS_PER_DIRECTION {
+					rel_x := i32(CHUNKS_PER_DIRECTION - 1 - CHUNKS_PER_DIRECTION_HALF)
+					rel_z := i32(z - CHUNKS_PER_DIRECTION_HALF)
+					pos := int2 {
+						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+					}
+					chunk_init(CHUNKS_PER_DIRECTION - 1, z, pos)
+				}
+			} else {
+
+				for z in 0 ..< CHUNKS_PER_DIRECTION {
+					chunk_release(&Chunks[CHUNKS_PER_DIRECTION - 1][z])
+				}
+				for x := CHUNKS_PER_DIRECTION - 1; x > 0; x -= 1 {
+					for z in 0 ..< CHUNKS_PER_DIRECTION {
+						Chunks[x][z] = Chunks[x - 1][z]
+						Chunks[x - 1][z].pointsSBO = nil
+						Chunks[x - 1][z].indices = nil
+						Chunks[x - 1][z].colors = nil
+						Chunks[x - 1][z].arena = {}
+						Chunks[x - 1][z].alloc = {}
+					}
+				}
+				for z in 0 ..< CHUNKS_PER_DIRECTION {
+					rel_x := i32(0 - CHUNKS_PER_DIRECTION_HALF)
+					rel_z := i32(z - CHUNKS_PER_DIRECTION_HALF)
+					pos := int2 {
+						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+					}
+					chunk_init(0, z, pos)
+				}
+			}
+		}
+	}
+
+	if delta[1] != 0 {
+		count := abs(delta[1])
+		for i in 0 ..< count {
+			if delta[1] > 0 {
+				for x in 0 ..< CHUNKS_PER_DIRECTION {
+					chunk_release(&Chunks[x][0])
+				}
+				for z in 0 ..< CHUNKS_PER_DIRECTION - 1 {
+					for x in 0 ..< CHUNKS_PER_DIRECTION {
+						Chunks[x][z] = Chunks[x][z + 1]
+						Chunks[x][z + 1].pointsSBO = nil
+						Chunks[x][z + 1].indices = nil
+						Chunks[x][z + 1].colors = nil
+						Chunks[x][z + 1].arena = {}
+						Chunks[x][z + 1].alloc = {}
+					}
+				}
+				for x in 0 ..< CHUNKS_PER_DIRECTION {
+					rel_x := i32(x - CHUNKS_PER_DIRECTION_HALF)
+					rel_z := i32(CHUNKS_PER_DIRECTION - 1 - CHUNKS_PER_DIRECTION_HALF)
+					pos := int2 {
+						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+					}
+					chunk_init(x, CHUNKS_PER_DIRECTION - 1, pos)
+				}
+			} else {
+				for x in 0 ..< CHUNKS_PER_DIRECTION {
+					chunk_release(&Chunks[x][CHUNKS_PER_DIRECTION - 1])
+				}
+				for z := CHUNKS_PER_DIRECTION - 1; z > 0; z -= 1 {
+					for x in 0 ..< CHUNKS_PER_DIRECTION {
+						Chunks[x][z] = Chunks[x][z - 1]
+						Chunks[x][z - 1].pointsSBO = nil
+						Chunks[x][z - 1].indices = nil
+						Chunks[x][z - 1].colors = nil
+						Chunks[x][z - 1].arena = {}
+						Chunks[x][z - 1].alloc = {}
+					}
+				}
+				for x in 0 ..< CHUNKS_PER_DIRECTION {
+					rel_x := i32(x - CHUNKS_PER_DIRECTION_HALF)
+					rel_z := i32(0 - CHUNKS_PER_DIRECTION_HALF)
+					pos := int2 {
+						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+					}
+					chunk_init(x, 0, pos)
+				}
+			}
+		}
+	}
+
+
+}
 chunks_draw :: proc(render_pass: ^^sdl.GPURenderPass, view_proj: matrix[4, 4]f32) {
 	assert(render_pass != nil && render_pass^ != nil)
 	for x in 0 ..< len(Chunks) {
@@ -235,40 +361,14 @@ chunks_draw :: proc(render_pass: ^^sdl.GPURenderPass, view_proj: matrix[4, 4]f32
 chunks_release :: proc() {
 	for &chunkX in Chunks {
 		for &chunk in chunkX {
-			sdl.ReleaseGPUBuffer(device, chunk.pointsSBO);chunk.pointsSBO = nil
-			sdl.ReleaseGPUBuffer(device, chunk.colors);chunk.colors = nil
-			sdl.ReleaseGPUBuffer(device, chunk.indices);chunk.indices = nil
-			free_all(chunk.alloc)
+			chunk_release(&chunk)
 		}
 	}
 }
+chunk_release :: proc(c: ^Chunk) {
+	sdl.ReleaseGPUBuffer(device, c.pointsSBO);c.pointsSBO = nil
+	sdl.ReleaseGPUBuffer(device, c.colors);c.colors = nil
+	sdl.ReleaseGPUBuffer(device, c.indices);c.indices = nil
 
-is_chunk_in_camera_frustrum :: proc(pos: [2]i32, c: ^Camera) -> bool {
-	min := float3{f32(pos[0]), f32(MIN_Y), f32(pos[1])}
-	max := float3{f32((pos[0] + CHUNK_SIZE)), f32(MAX_Y), f32((pos[1] + CHUNK_SIZE))}
-
-	view, proj := Camera_view_proj(c)
-	vp := proj * view
-
-	vp = linalg.transpose(vp)
-	planes := [6]float4 {
-		vp[3] + vp[0], // left
-		vp[3] - vp[0], // right
-		vp[3] + vp[1], // bottom
-		vp[3] - vp[1], // top
-		vp[3] + vp[2], // near
-		vp[3] - vp[2], // far
-	}
-	for i in 0 ..< 6 {
-		n := planes[i].xyz
-		len := linalg.length(n)
-		planes[i] /= len
-	}
-	for plane in planes {
-		if !aabb_vs_plane(min, max, plane) {
-			return false
-		}
-	}
-
-	return true
+	free_all(c.alloc)
 }

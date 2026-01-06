@@ -125,13 +125,6 @@ Camera_rotate :: proc(c: ^Camera) {
 	c.right = linalg.normalize(linalg.cross(c.front, WORLD_UP))
 	c.up = linalg.normalize(linalg.cross(c.right, c.front))
 }
-Frustum :: struct {
-	planes: [6]float4,
-}
-Plane :: struct {
-	point_on_plane: float3,
-	normal:         float3,
-}
 
 // frustum_from_camera :: proc(c: ^Camera) -> [6]Plane {
 //     aspect := f32(screenWidth) / f32(screenHeight)
@@ -157,4 +150,35 @@ aabb_vs_plane :: proc(min, max: float3, plane: float4) -> bool {
 	p := float3{n.x >= 0 ? max.x : min.x, n.y >= 0 ? max.y : min.y, n.z >= 0 ? max.z : min.z}
 
 	return linalg.dot(n, p) + d >= 0
+}
+
+
+is_chunk_in_camera_frustrum :: proc(pos: [2]i32, c: ^Camera) -> bool {
+	min := float3{f32(pos[0]), f32(MIN_Y), f32(pos[1])}
+	max := float3{f32((pos[0] + CHUNK_SIZE)), f32(MAX_Y), f32((pos[1] + CHUNK_SIZE))}
+
+	view, proj := Camera_view_proj(c)
+	vp := proj * view
+
+	vp = linalg.transpose(vp)
+	planes := [6]float4 {
+		vp[3] + vp[0], // left
+		vp[3] - vp[0], // right
+		vp[3] + vp[1], // bottom
+		vp[3] - vp[1], // top
+		vp[3] + vp[2], // near
+		vp[3] - vp[2], // far
+	}
+	for i in 0 ..< 6 {
+		n := planes[i].xyz
+		len := linalg.length(n)
+		planes[i] /= len
+	}
+	for plane in planes {
+		if !aabb_vs_plane(min, max, plane) {
+			return false
+		}
+	}
+
+	return true
 }

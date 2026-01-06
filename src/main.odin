@@ -31,7 +31,6 @@ main :: proc() {
 
 	sdl_ensure(sdl.ClaimWindowForGPUDevice(device, window) != false)
 
-	chunks_init()
 	defer chunks_release()
 	Vertices_pipeline_init()
 	defer Vertices_pipeline_release()
@@ -63,7 +62,10 @@ main :: proc() {
 	prevScreenWidth := screenWidth
 	prevScreenHeight := screenHeight
 	rand.reset(seed)
-	camera = Camera_new()
+	middleOfChunksInNormalCoords := f32((CHUNKS_PER_DIRECTION / 2)) * CHUNK_SIZE + CHUNK_SIZE / 2
+	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
+	camera = Camera_new(pos = middleOfMiddleChunkPos)
+	chunks_init(&camera)
 	for !quit {
 
 		defer free_all(context.temp_allocator)
@@ -132,7 +134,7 @@ main :: proc() {
 		}
 
 		Camera_process_keyboard_movement(&camera)
-
+		chunks_shift_per_player_movement(&camera)
 		cmdBuf := sdl.AcquireGPUCommandBuffer(device)
 		if cmdBuf == nil do continue
 		defer sdl_ensure(sdl.SubmitGPUCommandBuffer(cmdBuf) != false)
