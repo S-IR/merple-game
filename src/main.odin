@@ -19,8 +19,8 @@ main :: proc() {
 
 	width := 1280
 	height := 720
-	sdl_ensure(sdl.Init({.VIDEO}))
-	window = sdl.CreateWindow("Learn SDL Gpu", i32(width), i32(height), {.RESIZABLE})
+	sdl_ensure(sdl.Init({.VIDEO, .EVENTS}))
+	window = sdl.CreateWindow("Merple", i32(width), i32(height), {.RESIZABLE})
 	sdl_ensure(window != nil)
 	defer sdl.DestroyWindow(window)
 	sdl.SetLogPriorities(.WARN)

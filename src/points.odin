@@ -65,7 +65,7 @@ Vertices_pipeline_init :: proc() {
 			stage = .FRAGMENT,
 			num_samplers = 0,
 			num_uniform_buffers = 0,
-			num_storage_buffers = 0,
+			num_storage_buffers = 1,
 			num_storage_textures = 0,
 		},
 	)
@@ -73,14 +73,12 @@ Vertices_pipeline_init :: proc() {
 		{format = sdl.GetGPUSwapchainTextureFormat(device, window)},
 	}
 
-	vertexAttributes := [2]sdl.GPUVertexAttribute {
+	vertexAttributes := [?]sdl.GPUVertexAttribute {
 		{location = 0, format = .FLOAT3, offset = 0, buffer_slot = 0},
-		{location = 1, format = .FLOAT4, offset = 0, buffer_slot = 1},
 	}
 
-	vertexBufferDescriptions := [2]sdl.GPUVertexBufferDescription {
+	vertexBufferDescriptions := [?]sdl.GPUVertexBufferDescription {
 		{slot = 0, pitch = size_of(float3), input_rate = .VERTEX},
-		{slot = 1, pitch = size_of(float4), input_rate = .VERTEX},
 	}
 	Point_r.pipeline = sdl.CreateGPUGraphicsPipeline(
 		device,

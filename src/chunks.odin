@@ -2,6 +2,7 @@ package main
 import "algorithms"
 import "core:fmt"
 import "core:math"
+import "core:math/linalg"
 import "core:math/noise"
 import "core:math/rand"
 import "core:mem"
@@ -16,7 +17,7 @@ int2 :: [2]i32
 CHUNK_SIZE :: 16
 RENDER_DISTANCE :: 5
 MIN_Y :: -16
-MAX_Y :: 16
+MAX_Y :: 0
 CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
@@ -81,6 +82,7 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 
 	visiblePointCoords := make([dynamic]float3, context.temp_allocator)
 	indices := make([dynamic]u16, context.temp_allocator)
+	colorIndices := make([dynamic]u32, context.temp_allocator)
 	colors := make([dynamic]float4, context.temp_allocator)
 
 	for &v in EXISTING_VERTICES_MAPPER do v = -1
@@ -95,7 +97,7 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 				PERSISTENCE :: .25
 				LACUNARITY :: 3.0
 				res := algorithms.simplex_octaves_3d(
-					{f32(x), f32(y), f32(z)} * SCALE,
+					{f32(x), f32(y + MIN_Y), f32(z)} * SCALE,
 					transmute(i64)seed,
 					OCTAVES,
 					PERSISTENCE,
@@ -125,19 +127,25 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 						jitterZ := rand.float32()
 						append(
 							&visiblePointCoords,
-							chunkXYZ + coordInChunk + vert + float3{jitterX, jitterY, jitterZ},
+							chunkXYZ +
+							coordInChunk +
+							vert +
+							float3{jitterX, jitterY, jitterZ} +
+							float3{0, +MIN_Y, 0},
 						)
-						append(&colors, float4{rand.float32(), rand.float32(), rand.float32(), 1})
 					}
 				}
-				for index in cubeIndices {
+
+				for index, i in cubeIndices {
 					vert := cubeVertices[index]
 					existingIdx := calculate_existinv_vert_index(coordInChunk, vert)
 					assert(existingIdx != -1)
 					assert(existingIdx < len(EXISTING_VERTICES_MAPPER))
-
 					append(&indices, u16(EXISTING_VERTICES_MAPPER[existingIdx]))
 
+					if ((i + 1) % 3) == 0 {
+						append(&colors, rand.choice(RANDOM_RED_OPTIONS[:]))
+					}
 
 				}
 			}
@@ -173,9 +181,9 @@ chunk_init :: proc(x_idx, y_idx: int, pos: int2) {
 
 		chunk.colors = sdl.CreateGPUBuffer(
 			device,
-			{usage = {.VERTEX}, size = u32(len(colors) * size_of(colors[0]))},
+			{usage = {.GRAPHICS_STORAGE_READ}, size = u32(len(colors) * size_of(colors[0]))},
 		)
-		gpu_buffer_upload(&chunk.colors, raw_data(colors), len(colors) * size_of(colors[0]))
+		gpu_buffer_upload(&chunk.colors, raw_data(colors[:]), len(colors) * size_of(colors[0]))
 	}
 
 	assert(chunk.pointsSBO != nil)
@@ -203,10 +211,7 @@ chunks_draw :: proc(render_pass: ^^sdl.GPURenderPass, view_proj: matrix[4, 4]f32
 			sdl.BindGPUGraphicsPipeline(render_pass^, Point_r.pipeline)
 			sdl.BindGPUIndexBuffer(render_pass^, {buffer = chunk.indices, offset = 0}, ._16BIT)
 
-			vertexBufferBindings := [?]sdl.GPUBufferBinding {
-				{buffer = chunk.pointsSBO},
-				{buffer = chunk.colors},
-			}
+			vertexBufferBindings := [?]sdl.GPUBufferBinding{{buffer = chunk.pointsSBO}}
 			sdl.BindGPUVertexBuffers(
 				render_pass^,
 				0,
@@ -242,12 +247,28 @@ is_chunk_in_camera_frustrum :: proc(pos: [2]i32, c: ^Camera) -> bool {
 	min := float3{f32(pos[0]), f32(MIN_Y), f32(pos[1])}
 	max := float3{f32((pos[0] + CHUNK_SIZE)), f32(MAX_Y), f32((pos[1] + CHUNK_SIZE))}
 
-	planes := frustum_from_camera(c)
+	view, proj := Camera_view_proj(c)
+	vp := proj * view
 
+	vp = linalg.transpose(vp)
+	planes := [6]float4 {
+		vp[3] + vp[0], // left
+		vp[3] - vp[0], // right
+		vp[3] + vp[1], // bottom
+		vp[3] - vp[1], // top
+		vp[3] + vp[2], // near
+		vp[3] - vp[2], // far
+	}
+	for i in 0 ..< 6 {
+		n := planes[i].xyz
+		len := linalg.length(n)
+		planes[i] /= len
+	}
 	for plane in planes {
-		if !aabb_vs_plane(min, max, plane.point_on_plane, plane.normal) {
+		if !aabb_vs_plane(min, max, plane) {
 			return false
 		}
 	}
+
 	return true
 }
