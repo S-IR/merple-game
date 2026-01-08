@@ -4,7 +4,7 @@
         {
             "label": "run-dev",
             "type": "shell",
-            "command": "odin build src -out:build/debug.exe -debug; raddbg --ipc run",
+            "command": "odin build src -out:build/debug.exe -debug; if ($LASTEXITCODE -eq 0) { raddbg --ipc run }",
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated",

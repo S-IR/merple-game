@@ -1,9 +1,14 @@
 package main
+import "base:runtime"
 import "core:fmt"
 import "core:math/rand"
+import "core:mem"
 import "core:path/filepath"
+import "core:prof/spall"
+import "core:sync"
 import "core:time"
 import sdl "vendor:sdl3"
+
 
 sdl_ensure :: proc(cond: bool, message: string = "") {
 	msg := fmt.tprintf("%s:%s\n", message, sdl.GetError())
@@ -14,9 +19,64 @@ float2 :: [2]f32
 float3 :: [3]f32
 float4 :: [4]f32
 
+ENABLE_SPALL :: true && ODIN_DEBUG
+when ODIN_DEBUG && ENABLE_SPALL {
+	spall_ctx: spall.Context
+	@(thread_local)
+	spall_buffer: spall.Buffer
 
+
+	@(instrumentation_enter)
+	spall_enter :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+	}
+
+	@(instrumentation_exit)
+	spall_exit :: proc "contextless" (
+		proc_address, call_site_return_address: rawptr,
+		loc: runtime.Source_Code_Location,
+	) {
+		spall._buffer_end(&spall_ctx, &spall_buffer)
+	}
+
+}
 main :: proc() {
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
 
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			if len(track.bad_free_array) > 0 {
+				fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+				for entry in track.bad_free_array {
+					fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+
+		when ENABLE_SPALL {
+			spall_ctx = spall.context_create("spall-trace.spall")
+			defer spall.context_destroy(&spall_ctx)
+
+			buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+			defer delete(buffer_backing)
+
+			spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+			defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+		}
+
+	}
 	width := 1280
 	height := 720
 	sdl_ensure(sdl.Init({.VIDEO, .EVENTS}))

@@ -9,13 +9,13 @@ import "core:path/filepath"
 import "core:time"
 import sdl "vendor:sdl3"
 
-PointType :: enum (u32) {
+PointType :: enum (u16) {
 	Air,
 	Ground,
 }
 Point :: struct {
-	pos:  float3,
-	type: PointType,
+	jitter: u16,
+	type:   PointType,
 }
 
 

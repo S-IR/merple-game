@@ -17,7 +17,7 @@ int2 :: [2]i32
 CHUNK_SIZE :: 16
 RENDER_DISTANCE :: 5
 MIN_Y :: -16
-MAX_Y :: 0
+MAX_Y :: 16
 CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
@@ -45,16 +45,18 @@ chunk_point_get :: proc(c: ^Chunk, x, y, z: int) -> Point {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
-CHUNKS_PER_DIRECTION :: 5
+CHUNKS_PER_DIRECTION :: 10
 
 Chunks := [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]Chunk{}
 CHUNK_MIDDLE_X_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 CHUNK_MIDDLE_Z_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 
 ChunkAtTheCenter := int2{}
+JITTER_POOL := [max(u16)]float3{}
 chunks_init :: proc(c: ^Camera) {
 	centerChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	half :: CHUNKS_PER_DIRECTION / 2
+	for &jitter in JITTER_POOL do jitter = float3{rand.float32(), rand.float32(), rand.float32()}
 	for x in 0 ..< CHUNKS_PER_DIRECTION {
 		for z in 0 ..< CHUNKS_PER_DIRECTION {
 			relX := i32(x - half)
@@ -81,14 +83,15 @@ EXISTING_VERTICES_MAPPER := [VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR
 index_into_point_arrays :: proc(x, y, z: int) -> int {
 	return x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z
 }
+TEMP_XZ_ARR := [CUBES_PER_Z_DIR * CUBES_PER_Z_DIR]f64{}
 chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 	chunk := &Chunks[xIdx][zIdx]
 	chunk.pos = pos
 	chunk.alloc = virtual.arena_allocator(&chunk.arena)
 
+	assert(JITTER_POOL[0] != {})
 	visiblePointCoords := make([dynamic]float3, context.temp_allocator)
 	indices := make([dynamic]u16, context.temp_allocator)
-	colorIndices := make([dynamic]u32, context.temp_allocator)
 	colors := make([dynamic]float4, context.temp_allocator)
 
 	for &v in EXISTING_VERTICES_MAPPER do v = -1
@@ -96,21 +99,47 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 	THRESHOLD: f64 : 0.0
 	chunkXYZ := float3{f32(pos[0]), 0, f32(pos[1])}
 	for x in 0 ..< CUBES_PER_X_DIR {
-		for y in 0 ..< CUBES_PER_Y_DIR {
-			for z in 0 ..< CUBES_PER_Z_DIR {
-				SCALE :: .05
-				OCTAVES :: 6
-				PERSISTENCE :: .25
-				LACUNARITY :: 3.0
+		for z in 0 ..< CUBES_PER_Z_DIR {
+
+			SCALE_2D :: 100
+			OCTAVES_2D :: 6
+			PERSISTENCE_2D :: .25
+			LACUNARITY_2D :: 3.0
+			AMPLITUDE_2D :: 10.0
+			worldXZPos := float2{chunkXYZ[0], chunkXYZ[2]} + float2{f32(x), f32(z)}
+			surfaceLevelF :=
+				DEFAULT_SURFACE_LEVEL +
+				algorithms.simplex_octaves_2d(
+					worldXZPos / SCALE_2D,
+					i64(seed),
+					OCTAVES_2D,
+					PERSISTENCE_2D,
+					LACUNARITY_2D,
+				) *
+					AMPLITUDE_2D
+			TEMP_XZ_ARR[x * CUBES_PER_Z_DIR + z] = surfaceLevelF
+
+			for y in 0 ..< CUBES_PER_Y_DIR {
+				chosenJitter := u16(rand.uint32_max(len(JITTER_POOL)))
+				chunk.points[index_into_point_arrays(x, y, z)].jitter = chosenJitter
+
+				if (y + MIN_Y) > int(surfaceLevelF) do continue
+
+				SCALE_3D :: .05
+				OCTAVES_3D :: 6
+				PERSISTENCE_3D :: .25
+				LACUNARITY_3D :: 3.0
 				res := algorithms.simplex_octaves_3d(
-					chunkXYZ + {f32(x), f32(y + MIN_Y), f32(z)} * SCALE,
+					chunkXYZ + {f32(x), f32(y + MIN_Y), f32(z)} * SCALE_3D,
 					transmute(i64)seed,
-					OCTAVES,
-					PERSISTENCE,
-					LACUNARITY,
+					OCTAVES_3D,
+					PERSISTENCE_3D,
+					LACUNARITY_3D,
 				)
-				// CUBE_NOISE_FIELD[index_into_point_arrays(x, y, z)] = res
+
 				if res < THRESHOLD do continue
+
+				chunk.points[index_into_point_arrays(x, y, z)].type = .Ground
 				coordInChunk := float3{f32(x), f32(y), f32(z)}
 				startingVisiblePointLen := u16(len(visiblePointCoords))
 				calculate_existinv_vert_index := proc(xyzCoord: float3, vert: float3) -> int {
@@ -128,15 +157,12 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 
 					if EXISTING_VERTICES_MAPPER[existingVertIdx] == -1 {
 						EXISTING_VERTICES_MAPPER[existingVertIdx] = len(visiblePointCoords)
-						jitterX := rand.float32()
-						jitterY := rand.float32()
-						jitterZ := rand.float32()
 						append(
 							&visiblePointCoords,
 							chunkXYZ +
 							coordInChunk +
 							vert +
-							float3{jitterX, jitterY, jitterZ} +
+							JITTER_POOL[chosenJitter] +
 							float3{0, +MIN_Y, 0},
 						)
 					}
@@ -157,7 +183,6 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 			}
 		}
 	}
-
 
 	assert(len(visiblePointCoords) > 0)
 	assert(len(indices) > 0)

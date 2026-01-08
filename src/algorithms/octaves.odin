@@ -11,16 +11,16 @@ simplex_octaves_2d :: proc(
 	result: f64 = 0
 	amplitude: f64 = 1
 	frequency: f64 = 1
-	max_amplitude: f64 = 0
+	maxAmplitude: f64 = 0
 	posF64 := [2]f64{f64(pos.x), f64(pos.y)}
 	for i in 0 ..< octaves {
 		result += f64(noise.noise_2d_improve_x(seed, posF64 * frequency)) * amplitude
-		max_amplitude += amplitude
+		maxAmplitude += amplitude
 		amplitude *= persistence
 		frequency *= lacunarity
 	}
-
-	return result / max_amplitude
+	assert(maxAmplitude != 0)
+	return result / maxAmplitude
 }
 
 
