@@ -16,8 +16,8 @@ int2 :: [2]i32
 
 CHUNK_SIZE :: 16
 RENDER_DISTANCE :: 5
-MIN_Y :: -16
-MAX_Y :: 16
+MIN_Y :: -4
+MAX_Y :: 4
 CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
@@ -45,7 +45,7 @@ chunk_point_get :: proc(c: ^Chunk, x, y, z: int) -> Point {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
-CHUNKS_PER_DIRECTION :: 10
+CHUNKS_PER_DIRECTION :: 5
 
 Chunks := [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]Chunk{}
 CHUNK_MIDDLE_X_INDEX :: (CHUNKS_PER_DIRECTION / 2)
@@ -53,6 +53,7 @@ CHUNK_MIDDLE_Z_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 
 ChunkAtTheCenter := int2{}
 JITTER_POOL := [max(u16)]float3{}
+
 chunks_init :: proc(c: ^Camera) {
 	centerChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	half :: CHUNKS_PER_DIRECTION / 2
@@ -85,9 +86,19 @@ index_into_point_arrays :: proc(x, y, z: int) -> int {
 }
 TEMP_XZ_ARR := [CUBES_PER_Z_DIR * CUBES_PER_Z_DIR]f64{}
 chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
+
 	chunk := &Chunks[xIdx][zIdx]
+	if chunk.pointsSBO != nil {sdl.ReleaseGPUBuffer(device, chunk.pointsSBO);chunk.pointsSBO = nil}
+	if chunk.indices != nil {sdl.ReleaseGPUBuffer(device, chunk.indices);chunk.indices = nil}
+	if chunk.colors != nil {sdl.ReleaseGPUBuffer(device, chunk.colors);chunk.colors = nil}
+
+	if (chunk.alloc == {}) {
+		chunk.alloc = virtual.arena_allocator(&chunk.arena)
+	} else {
+		free_all(chunk.alloc)
+	}
+
 	chunk.pos = pos
-	chunk.alloc = virtual.arena_allocator(&chunk.arena)
 
 	assert(JITTER_POOL[0] != {})
 	visiblePointCoords := make([dynamic]float3, context.temp_allocator)
@@ -102,10 +113,10 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 		for z in 0 ..< CUBES_PER_Z_DIR {
 
 			SCALE_2D :: 100
-			OCTAVES_2D :: 6
+			OCTAVES_2D :: 3
 			PERSISTENCE_2D :: .25
 			LACUNARITY_2D :: 3.0
-			AMPLITUDE_2D :: 10.0
+			AMPLITUDE_2D :: 1.0
 			worldXZPos := float2{chunkXYZ[0], chunkXYZ[2]} + float2{f32(x), f32(z)}
 			surfaceLevelF :=
 				DEFAULT_SURFACE_LEVEL +
@@ -123,10 +134,10 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 				chosenJitter := u16(rand.uint32_max(len(JITTER_POOL)))
 				chunk.points[index_into_point_arrays(x, y, z)].jitter = chosenJitter
 
-				if (y + MIN_Y) > int(surfaceLevelF) do continue
+				if (y + MIN_Y) > int(surfaceLevelF) do break
 
 				SCALE_3D :: .05
-				OCTAVES_3D :: 6
+				OCTAVES_3D :: 3
 				PERSISTENCE_3D :: .25
 				LACUNARITY_3D :: 3.0
 				res := algorithms.simplex_octaves_3d(
@@ -142,7 +153,10 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 				chunk.points[index_into_point_arrays(x, y, z)].type = .Ground
 				coordInChunk := float3{f32(x), f32(y), f32(z)}
 				startingVisiblePointLen := u16(len(visiblePointCoords))
-				calculate_existinv_vert_index := proc(xyzCoord: float3, vert: float3) -> int {
+				calculate_existinv_vert_index := #force_inline proc(
+					xyzCoord: float3,
+					vert: float3,
+				) -> int {
 					vertIndex := xyzCoord + (vert + .5)
 					return(
 						int(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
