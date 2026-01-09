@@ -7,6 +7,7 @@ import "core:math/noise"
 import "core:math/rand"
 import "core:mem"
 import "core:mem/virtual"
+import "core:prof/spall"
 import sdl "vendor:sdl3"
 
 
@@ -16,8 +17,8 @@ int2 :: [2]i32
 
 CHUNK_SIZE :: 16
 RENDER_DISTANCE :: 5
-MIN_Y :: -4
-MAX_Y :: 4
+MIN_Y :: -32
+MAX_Y :: 31
 CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
@@ -45,7 +46,7 @@ chunk_point_get :: proc(c: ^Chunk, x, y, z: int) -> Point {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
-CHUNKS_PER_DIRECTION :: 5
+CHUNKS_PER_DIRECTION :: 10
 
 Chunks := [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]Chunk{}
 CHUNK_MIDDLE_X_INDEX :: (CHUNKS_PER_DIRECTION / 2)
@@ -53,7 +54,7 @@ CHUNK_MIDDLE_Z_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 
 ChunkAtTheCenter := int2{}
 JITTER_POOL := [max(u16)]float3{}
-
+NEXT_JITTER: u16 = 0
 chunks_init :: proc(c: ^Camera) {
 	centerChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	half :: CHUNKS_PER_DIRECTION / 2
@@ -81,11 +82,25 @@ RANDOM_RED_OPTIONS := [?]float4 {
 
 EXISTING_VERTICES_MAPPER := [VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR]int{}
 // CUBE_NOISE_FIELD := [(CUBES_PER_X_DIR) * (CUBES_PER_Y_DIR) * (CUBES_PER_Z_DIR)]f32{}
-index_into_point_arrays :: proc(x, y, z: int) -> int {
+index_into_point_arrays :: #force_inline proc(x, y, z: int) -> int {
 	return x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z
 }
-TEMP_XZ_ARR := [CUBES_PER_Z_DIR * CUBES_PER_Z_DIR]f64{}
+MAX_POINTS :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 8 // worst-case vertices per cube
+MAX_INDICES :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 36 // worst-case 12 triangles * 3
+MAX_COLORS :: MAX_INDICES
+
+staticVisiblePoints := [MAX_POINTS]float3{}
+staticIndices := [MAX_INDICES]u16{}
+staticColors := [MAX_COLORS]float4{}
+visiblePointLen: int
+indicesLen: int
+colorsLen: int
+
 chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
+	when ENABLE_SPALL {
+		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+	}
+
 
 	chunk := &Chunks[xIdx][zIdx]
 	if chunk.pointsSBO != nil {sdl.ReleaseGPUBuffer(device, chunk.pointsSBO);chunk.pointsSBO = nil}
@@ -100,142 +115,137 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 
 	chunk.pos = pos
 
-	assert(JITTER_POOL[0] != {})
-	visiblePointCoords := make([dynamic]float3, context.temp_allocator)
-	indices := make([dynamic]u16, context.temp_allocator)
-	colors := make([dynamic]float4, context.temp_allocator)
+	// reset counters
+	visiblePointLen = 0
+	indicesLen = 0
+	colorsLen = 0
 
 	for &v in EXISTING_VERTICES_MAPPER do v = -1
-	defer EXISTING_VERTICES_MAPPER = {}
-	THRESHOLD: f64 : 0.0
+
+	THRESHOLD: f32 = 0.0
 	chunkXYZ := float3{f32(pos[0]), 0, f32(pos[1])}
+
+	// when ENABLE_SPALL {
+	// 	spall._buffer_begin(&spall_ctx, &spall_buffer, "chunk_init_3d_loop")
+	// }
 	for x in 0 ..< CUBES_PER_X_DIR {
 		for z in 0 ..< CUBES_PER_Z_DIR {
-
-			SCALE_2D :: 100
-			OCTAVES_2D :: 3
-			PERSISTENCE_2D :: .25
-			LACUNARITY_2D :: 3.0
-			AMPLITUDE_2D :: 1.0
 			worldXZPos := float2{chunkXYZ[0], chunkXYZ[2]} + float2{f32(x), f32(z)}
+			Scale_2d: f64 : .1
 			surfaceLevelF :=
 				DEFAULT_SURFACE_LEVEL +
-				algorithms.simplex_octaves_2d(
-					worldXZPos / SCALE_2D,
-					i64(seed),
-					OCTAVES_2D,
-					PERSISTENCE_2D,
-					LACUNARITY_2D,
-				) *
-					AMPLITUDE_2D
-			TEMP_XZ_ARR[x * CUBES_PER_Z_DIR + z] = surfaceLevelF
-
+				math.pow(
+					4 *
+					algorithms.fbm_2d(
+						f64(worldXZPos[0]) * Scale_2d,
+						f64(worldXZPos[1]) * Scale_2d,
+						3,
+					),
+					5,
+				)
+			fmt.print("surfaceLevelF:", surfaceLevelF)
 			for y in 0 ..< CUBES_PER_Y_DIR {
-				chosenJitter := u16(rand.uint32_max(len(JITTER_POOL)))
-				chunk.points[index_into_point_arrays(x, y, z)].jitter = chosenJitter
+				#no_bounds_check chunk.points[index_into_point_arrays(x, y, z)].jitter =
+					NEXT_JITTER
 
+				defer NEXT_JITTER = (NEXT_JITTER + 1) % len(JITTER_POOL)
 				if (y + MIN_Y) > int(surfaceLevelF) do break
 
-				SCALE_3D :: .05
-				OCTAVES_3D :: 3
-				PERSISTENCE_3D :: .25
-				LACUNARITY_3D :: 3.0
-				res := algorithms.simplex_octaves_3d(
-					chunkXYZ + {f32(x), f32(y + MIN_Y), f32(z)} * SCALE_3D,
-					transmute(i64)seed,
-					OCTAVES_3D,
-					PERSISTENCE_3D,
-					LACUNARITY_3D,
-				)
+				// res := algorithms.simplex_octaves_3d(
+				// 	chunkXYZ + {f32(x), f32(y + MIN_Y), f32(z)} * Scale_3d,
+				// 	transmute(i64)seed,
+				// 	Octaves,
+				// 	Persistence,
+				// 	Lacunarity,
+				// )
+				// if res < THRESHOLD do continue
 
-				if res < THRESHOLD do continue
-
-				chunk.points[index_into_point_arrays(x, y, z)].type = .Ground
+				#no_bounds_check chunk.points[index_into_point_arrays(x, y, z)].type = .Ground
 				coordInChunk := float3{f32(x), f32(y), f32(z)}
-				startingVisiblePointLen := u16(len(visiblePointCoords))
-				calculate_existinv_vert_index := #force_inline proc(
-					xyzCoord: float3,
-					vert: float3,
-				) -> int {
-					vertIndex := xyzCoord + (vert + .5)
-					return(
+
+				for vert, i in cubeVertices {
+					vertIndex := coordInChunk + (vert + 0.5)
+					existingVertIdx :=
 						int(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
 						int(vertIndex.y) * VERTS_PER_Z_DIR +
-						int(vertIndex.z) \
-					)
-
-				}
-				for vert, i in cubeVertices {
-					existingVertIdx := calculate_existinv_vert_index(coordInChunk, vert)
-					assert(existingVertIdx < len(EXISTING_VERTICES_MAPPER))
-
-					if EXISTING_VERTICES_MAPPER[existingVertIdx] == -1 {
-						EXISTING_VERTICES_MAPPER[existingVertIdx] = len(visiblePointCoords)
-						append(
-							&visiblePointCoords,
-							chunkXYZ +
-							coordInChunk +
-							vert +
-							JITTER_POOL[chosenJitter] +
-							float3{0, +MIN_Y, 0},
-						)
+						int(vertIndex.z)
+					#no_bounds_check existingVertex := EXISTING_VERTICES_MAPPER[existingVertIdx]
+					if existingVertex == -1 {
+						#no_bounds_check {
+							jitteringVector := JITTER_POOL[NEXT_JITTER]
+							EXISTING_VERTICES_MAPPER[existingVertIdx] = visiblePointLen
+							staticVisiblePoints[visiblePointLen] =
+								chunkXYZ +
+								coordInChunk +
+								vert +
+								jitteringVector +
+								float3{0, +MIN_Y, 0}
+						}
+						visiblePointLen += 1
 					}
 				}
 
 				for index, i in cubeIndices {
-					vert := cubeVertices[index]
-					existingIdx := calculate_existinv_vert_index(coordInChunk, vert)
-					assert(existingIdx != -1)
-					assert(existingIdx < len(EXISTING_VERTICES_MAPPER))
-					append(&indices, u16(EXISTING_VERTICES_MAPPER[existingIdx]))
+					#no_bounds_check vert := cubeVertices[index]
+					vertIndex := coordInChunk + (vert + 0.5)
+					existingIdx :=
+						int(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
+						int(vertIndex.y) * VERTS_PER_Z_DIR +
+						int(vertIndex.z)
+
+					#no_bounds_check {
+						staticIndices[indicesLen] = u16(EXISTING_VERTICES_MAPPER[existingIdx])
+					}
+					indicesLen += 1
 
 					if ((i + 1) % 3) == 0 {
-						append(&colors, rand.choice(RANDOM_RED_OPTIONS[:]))
+						#no_bounds_check {
+							staticColors[colorsLen] =
+								RANDOM_RED_OPTIONS[i % len(RANDOM_RED_OPTIONS)]
+							colorsLen += 1
+						}
 					}
-
 				}
 			}
 		}
 	}
+	// when ENABLE_SPALL {
+	// 	spall._buffer_end(&spall_ctx, &spall_buffer)
+	// }
+	assert(visiblePointLen > 0 && indicesLen > 0 && colorsLen > 0)
 
-	assert(len(visiblePointCoords) > 0)
-	assert(len(indices) > 0)
-	assert(len(colors) > 0)
+	// upload to GPU
+	chunk.pointsSBO = sdl.CreateGPUBuffer(
+		device,
+		{usage = {.VERTEX}, size = u32(visiblePointLen * size_of(staticVisiblePoints[0]))},
+	)
+	gpu_buffer_upload(
+		&chunk.pointsSBO,
+		raw_data(staticVisiblePoints[0:visiblePointLen]),
+		uint(visiblePointLen * size_of(staticVisiblePoints[0])),
+	)
+	chunk.totalPoints = u32(visiblePointLen)
 
-	{
-		chunk.pointsSBO = sdl.CreateGPUBuffer(
-			device,
-			{
-				usage = {.VERTEX},
-				size = u32(len(visiblePointCoords) * size_of(visiblePointCoords[0])),
-			},
-		)
-		gpu_buffer_upload(
-			&chunk.pointsSBO,
-			raw_data(visiblePointCoords),
-			len(visiblePointCoords) * size_of(visiblePointCoords[0]),
-		)
-		chunk.totalPoints = u32(len(visiblePointCoords))
+	chunk.indices = sdl.CreateGPUBuffer(
+		device,
+		{usage = {.INDEX}, size = u32(indicesLen * size_of(staticIndices[0]))},
+	)
+	gpu_buffer_upload(
+		&chunk.indices,
+		raw_data(staticIndices[0:indicesLen]),
+		uint(indicesLen * size_of(staticIndices[0])),
+	)
+	chunk.totalIndices = u32(indicesLen)
 
-		chunk.indices = sdl.CreateGPUBuffer(
-			device,
-			{usage = {.INDEX}, size = u32(len(indices) * size_of(indices[0]))},
-		)
-		gpu_buffer_upload(&chunk.indices, raw_data(indices), len(indices) * size_of(indices[0]))
-		chunk.totalIndices = u32(len(indices))
-
-		chunk.colors = sdl.CreateGPUBuffer(
-			device,
-			{usage = {.GRAPHICS_STORAGE_READ}, size = u32(len(colors) * size_of(colors[0]))},
-		)
-		gpu_buffer_upload(&chunk.colors, raw_data(colors[:]), len(colors) * size_of(colors[0]))
-	}
-
-	assert(chunk.pointsSBO != nil)
-	assert(chunk.indices != nil)
-	assert(chunk.colors != nil)
-	assert(chunk.totalPoints > 0)
-	assert(chunk.totalIndices > 0)
+	chunk.colors = sdl.CreateGPUBuffer(
+		device,
+		{usage = {.GRAPHICS_STORAGE_READ}, size = u32(colorsLen * size_of(staticColors[0]))},
+	)
+	gpu_buffer_upload(
+		&chunk.colors,
+		raw_data(staticColors[0:colorsLen]),
+		uint(colorsLen * size_of(staticColors[0])),
+	)
 }
 chunks_shift_per_player_movement :: proc(c: ^Camera) {
 

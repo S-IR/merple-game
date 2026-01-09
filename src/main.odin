@@ -19,7 +19,7 @@ float2 :: [2]f32
 float3 :: [3]f32
 float4 :: [4]f32
 
-ENABLE_SPALL :: true && ODIN_DEBUG
+ENABLE_SPALL :: false && ODIN_DEBUG
 when ODIN_DEBUG && ENABLE_SPALL {
 	spall_ctx: spall.Context
 	@(thread_local)
@@ -43,6 +43,10 @@ when ODIN_DEBUG && ENABLE_SPALL {
 	}
 
 }
+Scale_3d: f32 = 0.02
+Octaves: int = 1
+Persistence: f32 = 0.25
+Lacunarity: f64 = 3
 main :: proc() {
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
@@ -145,22 +149,74 @@ main :: proc() {
 
 		for sdl.PollEvent(&e) {
 
-
+			SCALE_STEP :: f32(0.001)
+			PERSIST_STEP :: f32(0.01)
+			LACUNARITY_STEP :: f64(0.1)
+			OCTAVE_STEP :: 1
 			#partial switch e.type {
 			case .QUIT:
 				quit = true
 				break
 			case .KEY_DOWN:
-				if e.key.key == sdl.K_ESCAPE {
+				switch e.key.key {
+				case sdl.K_ESCAPE:
 					quit = true
-				} else if e.key.key == sdl.K_F11 {
+				case sdl.K_F11:
 					flags := sdl.GetWindowFlags(window)
 					if .FULLSCREEN in flags {
 						sdl.SetWindowFullscreen(window, false)
 					} else {
 						sdl.SetWindowFullscreen(window, true)
 					}
+				case sdl.K_J:
+					// Scale_3d +
+					Scale_3d += SCALE_STEP
+					fmt.println("Scale_3d:", Scale_3d)
+					chunks_init(&camera)
+
+				case sdl.K_K:
+					// Scale_3d -
+					Scale_3d -= SCALE_STEP
+					fmt.println("Scale_3d:", Scale_3d)
+					chunks_init(&camera)
+
+				case sdl.K_U:
+					// Octaves +
+					Octaves += OCTAVE_STEP
+					fmt.println("Octaves:", Octaves)
+					chunks_init(&camera)
+
+				case sdl.K_I:
+					// Octaves -
+					if Octaves > 1 do Octaves -= OCTAVE_STEP
+					fmt.println("Octaves:", Octaves)
+					chunks_init(&camera)
+
+				case sdl.K_O:
+					// Persistence +
+					Persistence += PERSIST_STEP
+					fmt.println("Persistence:", Persistence)
+					chunks_init(&camera)
+
+				case sdl.K_P:
+					// Persistence -
+					Persistence -= PERSIST_STEP
+					fmt.println("Persistence:", Persistence)
+					chunks_init(&camera)
+
+				case sdl.K_N:
+					// Lacunarity +
+					Lacunarity += LACUNARITY_STEP
+					fmt.println("Lacunarity:", Lacunarity)
+					chunks_init(&camera)
+
+				case sdl.K_M:
+					// Lacunarity -
+					Lacunarity -= LACUNARITY_STEP
+					fmt.println("Lacunarity:", Lacunarity)
+					chunks_init(&camera)
 				}
+
 
 			case .WINDOW_RESIZED:
 				screenWidth, screenHeight = e.window.data1, e.window.data2
