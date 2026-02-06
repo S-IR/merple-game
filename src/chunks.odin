@@ -8,6 +8,7 @@ import "core:math/rand"
 import "core:mem"
 import "core:mem/virtual"
 import "core:prof/spall"
+import "core:simd"
 import sdl "vendor:sdl3"
 
 
@@ -142,51 +143,63 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 			surfaceLevelFs[3] = -4
 
 			for i: i64 = 0; i < len(biomes); i += 1 {
-				surfaceLevelF := surfaceLevelFs[i]
-
-				for y in 0 ..< CUBES_PER_Y_DIR {
-					if (y + MIN_Y) > i64(surfaceLevelF) do break
-
+				surfaceLevelF := i64(surfaceLevelFs[i])
+				for yCoord: i64 = MIN_Y; yCoord < surfaceLevelF; yCoord += 1 {
+					y := i64(yCoord) - MIN_Y
 					currX := i64(x) + i
 					currZ := i64(z)
 
 					chunk.points[index_into_point_arrays(currX, y, currZ)] = u16(PointType.Ground)
 
 					coordInChunk := float3{f32(x + f64(i)), f32(y), f32(z)}
+					coordInChunkInt := [3]i64{i64(x) + i, i64(y), i64(z)}
 
-					for vert, vi in cubeVertices {
+					vertsX := coordInChunkInt.x + cubeVerticesX
+					vertsY := coordInChunkInt.y + cubeVerticesY
+					vertsZ := coordInChunkInt.z + cubeVerticesZ
+
+					existingVertIndicesSimd :=
+						vertsX * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
+						vertsY * VERTS_PER_Z_DIR +
+						vertsZ
+
+					existingVertIndices := simd.to_array(existingVertIndicesSimd)
+
+					for existingVertIdx, i in existingVertIndices {
 						#no_bounds_check {
-							vertIndex := coordInChunk + (vert + 0.5)
-							existingVertIdx :=
-								i64(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
-								i64(vertIndex.y) * VERTS_PER_Z_DIR +
-								i64(vertIndex.z)
 							existingVertex := EXISTING_VERTICES_MAPPER[existingVertIdx]
 							if existingVertex == -1 {
 								jitteringVector :=
 									JITTER_POOL[calculate_jitter_idx(currX, y, currZ)]
 								EXISTING_VERTICES_MAPPER[existingVertIdx] = staticVisiblePointsLen
-								staticVisiblePoints[staticVisiblePointsLen] =
-									chunkXYZ +
-									coordInChunk +
-									vert +
-									jitteringVector +
-									float3{0, +MIN_Y, 0}
+
+								vertex_offset_x := simd.extract(cubeVerticesX, i)
+								vertex_offset_y := simd.extract(cubeVerticesY, i)
+								vertex_offset_z := simd.extract(cubeVerticesZ, i)
+
+								finalPointCoord := chunkXYZ
+								finalPointCoord.x += f32(coordInChunkInt.x) + f32(vertex_offset_x)
+								finalPointCoord.y +=
+									f32(coordInChunkInt.y) + f32(vertex_offset_y) + f32(MIN_Y)
+								finalPointCoord.z += f32(coordInChunkInt.z) + f32(vertex_offset_z)
+								finalPointCoord += jitteringVector
+
+								staticVisiblePoints[staticVisiblePointsLen] = finalPointCoord
 								staticVisiblePointsLen += 1
 							}
 						}
-
 					}
 
 					#no_bounds_check {
 						colorForThisCube := random_color_for_biome(biomes[i])
+						#assert(len(cubeIndices) % 4 == 0)
+
 						for index, idx in cubeIndices {
-							vert := cubeVertices[index]
-							vertIndex := coordInChunk + (vert + 0.5)
+							vertIndex := coordInChunkInt + cubeVertices[index]
 							existingIdx :=
-								i64(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
-								i64(vertIndex.y) * VERTS_PER_Z_DIR +
-								i64(vertIndex.z)
+								vertIndex.x * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
+								vertIndex.y * VERTS_PER_Z_DIR +
+								vertIndex.z
 
 							staticIndices[staticIndicesLen] = u16(
 								EXISTING_VERTICES_MAPPER[existingIdx],

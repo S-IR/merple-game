@@ -1,14 +1,17 @@
 package main
-cubeVertices := [8]float3 {
-	{-0.5, -0.5, 0.5}, // 0: front bottom left
-	{0.5, -0.5, 0.5}, // 1: front bottom right
-	{0.5, 0.5, 0.5}, // 2: front top right
-	{-0.5, 0.5, 0.5}, // 3: front top left
-	{-0.5, -0.5, -0.5}, // 4: back bottom left
-	{0.5, -0.5, -0.5}, // 5: back bottom right
-	{0.5, 0.5, -0.5}, // 6: back top right
-	{-0.5, 0.5, -0.5}, // 7: back top left
+cubeVertices := [8][3]i64 {
+	{0.0, 0.0, 1.0}, // 0: front bottom left
+	{1.0, 0.0, 1.0}, // 1: front bottom right
+	{1.0, 1.0, 1.0}, // 2: front top right
+	{0.0, 1.0, 1.0}, // 3: front top left
+	{0.0, 0.0, 0.0}, // 4: back bottom left
+	{1.0, 0.0, 0.0}, // 5: back bottom right
+	{1.0, 1.0, 0.0}, // 6: back top right
+	{0.0, 1.0, 0.0}, // 7: back top left
 }
+cubeVerticesX := #simd[8]i64{0, 1, 1, 0, 0, 1, 1, 0}
+cubeVerticesY := #simd[8]i64{0, 0, 1, 1, 0, 0, 1, 1}
+cubeVerticesZ := #simd[8]i64{1, 1, 1, 1, 0, 0, 0, 0}
 
 cubeIndices := [36]u16 {
 	// Front face
