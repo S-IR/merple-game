@@ -13,10 +13,8 @@ PointType :: enum (u16) {
 	Air,
 	Ground,
 }
-Point :: struct {
-	jitter: u16,
-	type:   PointType,
-}
+//last 6 bytes represents the corruption state
+Point :: u16
 
 
 Point_r: struct {

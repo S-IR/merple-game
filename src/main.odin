@@ -19,7 +19,7 @@ float2 :: [2]f32
 float3 :: [3]f32
 float4 :: [4]f32
 
-ENABLE_SPALL :: false && ODIN_DEBUG
+ENABLE_SPALL :: true && ODIN_DEBUG
 when ODIN_DEBUG && ENABLE_SPALL {
 	spall_ctx: spall.Context
 	@(thread_local)

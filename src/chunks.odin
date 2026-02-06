@@ -23,13 +23,13 @@ CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
 WIDTH_OF_CELL :: f32(1)
-CUBES_PER_X_DIR: int : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
-CUBES_PER_Z_DIR: int : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
-CUBES_PER_Y_DIR: int : auto_cast ((MAX_Y - MIN_Y) / WIDTH_OF_CELL)
+CUBES_PER_X_DIR: i64 : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
+CUBES_PER_Z_DIR: i64 : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
+CUBES_PER_Y_DIR: i64 : auto_cast ((MAX_Y - MIN_Y) / WIDTH_OF_CELL)
 
-VERTS_PER_X_DIR: int : CUBES_PER_X_DIR + 1
-VERTS_PER_Y_DIR: int : CUBES_PER_Y_DIR + 1
-VERTS_PER_Z_DIR: int : CUBES_PER_Z_DIR + 1
+VERTS_PER_X_DIR: i64 : CUBES_PER_X_DIR + 1
+VERTS_PER_Y_DIR: i64 : CUBES_PER_Y_DIR + 1
+VERTS_PER_Z_DIR: i64 : CUBES_PER_Z_DIR + 1
 
 Chunk :: struct {
 	pos:          int2,
@@ -42,7 +42,7 @@ Chunk :: struct {
 	arena:        virtual.Arena,
 	alloc:        mem.Allocator,
 }
-chunk_point_get :: proc(c: ^Chunk, x, y, z: int) -> Point {
+chunk_point_get :: proc(c: ^Chunk, x, y, z: i64) -> Point {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
@@ -80,172 +80,171 @@ RANDOM_RED_OPTIONS := [?]float4 {
 	{.2, 0, 0, 1},
 }
 
-EXISTING_VERTICES_MAPPER := [VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR]int{}
 // CUBE_NOISE_FIELD := [(CUBES_PER_X_DIR) * (CUBES_PER_Y_DIR) * (CUBES_PER_Z_DIR)]f32{}
-index_into_point_arrays :: #force_inline proc(x, y, z: int) -> int {
+index_into_point_arrays :: #force_inline proc(x, y, z: i64) -> i64 {
 	return x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z
 }
-MAX_POINTS :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 8 // worst-case vertices per cube
-MAX_INDICES :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 36 // worst-case 12 triangles * 3
+MAX_POINTS :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 8
+MAX_INDICES :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 36
 MAX_COLORS :: MAX_INDICES
-
-staticVisiblePoints := [MAX_POINTS]float3{}
-staticIndices := [MAX_INDICES]u16{}
-staticColors := [MAX_COLORS]float4{}
-visiblePointLen: int
-indicesLen: int
-colorsLen: int
-
+BIOME_SCALE :: 0.001
 chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
-	when ENABLE_SPALL {
-		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
-	}
-
-
 	chunk := &Chunks[xIdx][zIdx]
 	if chunk.pointsSBO != nil {sdl.ReleaseGPUBuffer(device, chunk.pointsSBO);chunk.pointsSBO = nil}
 	if chunk.indices != nil {sdl.ReleaseGPUBuffer(device, chunk.indices);chunk.indices = nil}
 	if chunk.colors != nil {sdl.ReleaseGPUBuffer(device, chunk.colors);chunk.colors = nil}
 
-	if (chunk.alloc == {}) {
+	if chunk.alloc == {} {
 		chunk.alloc = virtual.arena_allocator(&chunk.arena)
 	} else {
 		free_all(chunk.alloc)
 	}
 
-	chunk.pos = pos
+	staticVisiblePoints := make(
+		[dynamic]float3,
+		len = MAX_POINTS,
+		allocator = context.temp_allocator,
+	)
+	staticVisiblePointsLen: int = 0
 
-	// reset counters
-	visiblePointLen = 0
-	indicesLen = 0
-	colorsLen = 0
+	staticIndices := make([dynamic]u16, len = MAX_INDICES, allocator = context.temp_allocator)
+	staticIndicesLen: int = 0
 
+	staticColors := make([dynamic]float4, len = MAX_COLORS, allocator = context.temp_allocator)
+	staticColorsLen: int = 0
+
+	EXISTING_VERTICES_MAPPER := make(
+		[dynamic]int,
+		len = VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR,
+		allocator = context.temp_allocator,
+	)
 	for &v in EXISTING_VERTICES_MAPPER do v = -1
 
-	THRESHOLD: f32 = 0.0
+	chunk.pos = pos
+
+	posXF64 := f64(pos[0])
+	posZF64 := f64(pos[1])
 	chunkXYZ := float3{f32(pos[0]), 0, f32(pos[1])}
+	chunkXSimd := #simd[4]f64{posXF64, posXF64, posXF64, posXF64}
+	chunkZSimd := #simd[4]f64{posZF64, posZF64, posZF64, posZF64}
 
-	// when ENABLE_SPALL {
-	// 	spall._buffer_begin(&spall_ctx, &spall_buffer, "chunk_init_3d_loop")
-	// }
-	for x in 0 ..< CUBES_PER_X_DIR {
-		for z in 0 ..< CUBES_PER_Z_DIR {
-			worldXZPos := float2{chunkXYZ[0], chunkXYZ[2]} + float2{f32(x), f32(z)}
-			Scale_2d: f64 : .1
-			surfaceLevelF :=
-				DEFAULT_SURFACE_LEVEL +
-				math.pow(
-					4 *
-					algorithms.fbm_2d(
-						f64(worldXZPos[0]) * Scale_2d,
-						f64(worldXZPos[1]) * Scale_2d,
-						3,
-					),
-					5,
-				)
-			fmt.print("surfaceLevelF:", surfaceLevelF)
-			for y in 0 ..< CUBES_PER_Y_DIR {
-				#no_bounds_check chunk.points[index_into_point_arrays(x, y, z)].jitter =
-					NEXT_JITTER
+	for x: f64 = 0.0; x < f64(CUBES_PER_X_DIR); x += 4 {
+		for z: f64 = 0.0; z < f64(CUBES_PER_Z_DIR); z += 1 {
+			worldXPosSimd := chunkXSimd + #simd[4]f64{x, x + 1, x + 2, x + 3}
+			worldZPosSimd := chunkZSimd + #simd[4]f64{z, z, z, z}
 
-				defer NEXT_JITTER = (NEXT_JITTER + 1) % len(JITTER_POOL)
-				if (y + MIN_Y) > int(surfaceLevelF) do break
+			biomes := get_biome_weights(worldXPosSimd, worldZPosSimd, seed, BIOME_SCALE)
 
-				// res := algorithms.simplex_octaves_3d(
-				// 	chunkXYZ + {f32(x), f32(y + MIN_Y), f32(z)} * Scale_3d,
-				// 	transmute(i64)seed,
-				// 	Octaves,
-				// 	Persistence,
-				// 	Lacunarity,
-				// )
-				// if res < THRESHOLD do continue
+			surfaceLevelFs: [4]f64
+			surfaceLevelFs[0] = -4
+			surfaceLevelFs[1] = -4
+			surfaceLevelFs[2] = -4
+			surfaceLevelFs[3] = -4
 
-				#no_bounds_check chunk.points[index_into_point_arrays(x, y, z)].type = .Ground
-				coordInChunk := float3{f32(x), f32(y), f32(z)}
+			for i: i64 = 0; i < len(biomes); i += 1 {
+				surfaceLevelF := surfaceLevelFs[i]
 
-				for vert, i in cubeVertices {
-					vertIndex := coordInChunk + (vert + 0.5)
-					existingVertIdx :=
-						int(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
-						int(vertIndex.y) * VERTS_PER_Z_DIR +
-						int(vertIndex.z)
-					#no_bounds_check existingVertex := EXISTING_VERTICES_MAPPER[existingVertIdx]
-					if existingVertex == -1 {
+				for y in 0 ..< CUBES_PER_Y_DIR {
+					if (y + MIN_Y) > i64(surfaceLevelF) do break
+
+					currX := i64(x) + i
+					currZ := i64(z)
+
+					chunk.points[index_into_point_arrays(currX, y, currZ)] = u16(PointType.Ground)
+
+					coordInChunk := float3{f32(x + f64(i)), f32(y), f32(z)}
+
+					for vert, vi in cubeVertices {
 						#no_bounds_check {
-							jitteringVector := JITTER_POOL[NEXT_JITTER]
-							EXISTING_VERTICES_MAPPER[existingVertIdx] = visiblePointLen
-							staticVisiblePoints[visiblePointLen] =
-								chunkXYZ +
-								coordInChunk +
-								vert +
-								jitteringVector +
-								float3{0, +MIN_Y, 0}
+							vertIndex := coordInChunk + (vert + 0.5)
+							existingVertIdx :=
+								i64(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
+								i64(vertIndex.y) * VERTS_PER_Z_DIR +
+								i64(vertIndex.z)
+							existingVertex := EXISTING_VERTICES_MAPPER[existingVertIdx]
+							if existingVertex == -1 {
+								jitteringVector :=
+									JITTER_POOL[calculate_jitter_idx(currX, y, currZ)]
+								EXISTING_VERTICES_MAPPER[existingVertIdx] = staticVisiblePointsLen
+								staticVisiblePoints[staticVisiblePointsLen] =
+									chunkXYZ +
+									coordInChunk +
+									vert +
+									jitteringVector +
+									float3{0, +MIN_Y, 0}
+								staticVisiblePointsLen += 1
+							}
 						}
-						visiblePointLen += 1
-					}
-				}
 
-				for index, i in cubeIndices {
-					#no_bounds_check vert := cubeVertices[index]
-					vertIndex := coordInChunk + (vert + 0.5)
-					existingIdx :=
-						int(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
-						int(vertIndex.y) * VERTS_PER_Z_DIR +
-						int(vertIndex.z)
+					}
 
 					#no_bounds_check {
-						staticIndices[indicesLen] = u16(EXISTING_VERTICES_MAPPER[existingIdx])
-					}
-					indicesLen += 1
+						colorForThisCube := random_color_for_biome(biomes[i])
+						for index, idx in cubeIndices {
+							vert := cubeVertices[index]
+							vertIndex := coordInChunk + (vert + 0.5)
+							existingIdx :=
+								i64(vertIndex.x) * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
+								i64(vertIndex.y) * VERTS_PER_Z_DIR +
+								i64(vertIndex.z)
 
-					if ((i + 1) % 3) == 0 {
-						#no_bounds_check {
-							staticColors[colorsLen] =
-								RANDOM_RED_OPTIONS[i % len(RANDOM_RED_OPTIONS)]
-							colorsLen += 1
+							staticIndices[staticIndicesLen] = u16(
+								EXISTING_VERTICES_MAPPER[existingIdx],
+							)
+							staticIndicesLen += 1
+
+							staticColors[staticColorsLen] = colorForThisCube
+							staticColorsLen += 1
+
 						}
 					}
+
 				}
 			}
 		}
 	}
-	// when ENABLE_SPALL {
-	// 	spall._buffer_end(&spall_ctx, &spall_buffer)
-	// }
-	assert(visiblePointLen > 0 && indicesLen > 0 && colorsLen > 0)
 
-	// upload to GPU
+	assert(staticVisiblePointsLen > 0)
 	chunk.pointsSBO = sdl.CreateGPUBuffer(
 		device,
-		{usage = {.VERTEX}, size = u32(visiblePointLen * size_of(staticVisiblePoints[0]))},
+		{usage = {.VERTEX}, size = u32(staticVisiblePointsLen * size_of(float3))},
 	)
-	gpu_buffer_upload(
-		&chunk.pointsSBO,
-		raw_data(staticVisiblePoints[0:visiblePointLen]),
-		uint(visiblePointLen * size_of(staticVisiblePoints[0])),
-	)
-	chunk.totalPoints = u32(visiblePointLen)
+	chunk.totalPoints = u32(staticVisiblePointsLen)
 
+	assert(staticIndicesLen > 0)
 	chunk.indices = sdl.CreateGPUBuffer(
 		device,
-		{usage = {.INDEX}, size = u32(indicesLen * size_of(staticIndices[0]))},
+		{usage = {.INDEX}, size = u32(staticIndicesLen * size_of(u16))},
 	)
-	gpu_buffer_upload(
-		&chunk.indices,
-		raw_data(staticIndices[0:indicesLen]),
-		uint(indicesLen * size_of(staticIndices[0])),
-	)
-	chunk.totalIndices = u32(indicesLen)
+	chunk.totalIndices = u32(staticIndicesLen)
 
+	assert(staticColorsLen > 0)
 	chunk.colors = sdl.CreateGPUBuffer(
 		device,
-		{usage = {.GRAPHICS_STORAGE_READ}, size = u32(colorsLen * size_of(staticColors[0]))},
+		{usage = {.GRAPHICS_STORAGE_READ}, size = u32(staticColorsLen * size_of(float4))},
 	)
-	gpu_buffer_upload(
+
+	TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO :: 3
+
+	buffers := [TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO]^^sdl.GPUBuffer {
+		&chunk.pointsSBO,
+		&chunk.indices,
 		&chunk.colors,
-		raw_data(staticColors[0:colorsLen]),
-		uint(colorsLen * size_of(staticColors[0])),
-	)
+	}
+	datas := [TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO]rawptr {
+		raw_data(staticVisiblePoints[0:staticVisiblePointsLen]),
+		raw_data(staticIndices[0:staticIndicesLen]),
+		raw_data(staticColors[0:staticColorsLen]),
+	}
+	sizes := [TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO]uint {
+		uint(staticVisiblePointsLen * size_of(float3)),
+		uint(staticIndicesLen * size_of(u16)),
+		uint(staticColorsLen * size_of(float4)),
+	}
+	gpu_buffer_upload_batch(buffers[:], datas[:], sizes[:])
+}
+calculate_jitter_idx :: #force_inline proc(x, y, z: i64) -> u16 {
+	return u16((x + y + z) % i64(max(u16)))
 }
 chunks_shift_per_player_movement :: proc(c: ^Camera) {
 
