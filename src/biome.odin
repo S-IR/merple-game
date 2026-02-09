@@ -30,55 +30,55 @@ MOUNTAIN_HEIGHT_MULT :: 15.0
 MOUNTAIN_BASE_HEIGHT :: 0
 
 
-// Biome-specific surface level functions
-surface_level_forest :: proc(x, z: f64, seed: u64) -> f64 {
-	return(
-		FOREST_BASE_HEIGHT +
-		algorithms.fbm_2d(
-			x * FOREST_SCALE,
-			z * FOREST_SCALE,
-			seed,
-			FOREST_OCTAVES,
-			FOREST_LACUNARITY,
-			FOREST_PERSISTENCE,
-		) *
-			FOREST_HEIGHT_MULT \
-	)
-}
+// // Biome-specific surface level functions
+// surface_level_forest :: proc(x, z: f64, seed: u64) -> f64 {
+// 	return(
+// 		FOREST_BASE_HEIGHT +
+// 		algorithms.fbm_2d(
+// 			x * FOREST_SCALE,
+// 			z * FOREST_SCALE,
+// 			seed,
+// 			FOREST_OCTAVES,
+// 			FOREST_LACUNARITY,
+// 			FOREST_PERSISTENCE,
+// 		) *
+// 			FOREST_HEIGHT_MULT \
+// 	)
+// }
 
-surface_level_crystal :: proc(x, z: f64, seed: u64) -> f64 {
-	return(
-		CRYSTAL_BASE_HEIGHT +
-		algorithms.fbm_2d(
-			x * CRYSTAL_SCALE,
-			z * CRYSTAL_SCALE,
-			seed,
-			CRYSTAL_OCTAVES,
-			CRYSTAL_LACUNARITY,
-			CRYSTAL_PERSISTENCE,
-		) *
-			CRYSTAL_HEIGHT_MULT \
-	)
-}
+// surface_level_crystal :: proc(x, z: f64, seed: u64) -> f64 {
+// 	return(
+// 		CRYSTAL_BASE_HEIGHT +
+// 		algorithms.fbm_2d(
+// 			x * CRYSTAL_SCALE,
+// 			z * CRYSTAL_SCALE,
+// 			seed,
+// 			CRYSTAL_OCTAVES,
+// 			CRYSTAL_LACUNARITY,
+// 			CRYSTAL_PERSISTENCE,
+// 		) *
+// 			CRYSTAL_HEIGHT_MULT \
+// 	)
+// }
 
-surface_level_mountain :: proc(x, z: f64, seed: u64) -> f64 {
-	return(
-		MOUNTAIN_BASE_HEIGHT +
-		algorithms.fbm_2d(
-			x * MOUNTAIN_SCALE,
-			z * MOUNTAIN_SCALE,
-			seed,
-			MOUNTAIN_OCTAVES,
-			MOUNTAIN_LACUNARITY,
-			MOUNTAIN_PERSISTENCE,
-		) *
-			MOUNTAIN_HEIGHT_MULT \
-	)
-}
+// surface_level_mountain :: proc(x, z: f64, seed: u64) -> f64 {
+// 	return(
+// 		MOUNTAIN_BASE_HEIGHT +
+// 		algorithms.fbm_2d(
+// 			x * MOUNTAIN_SCALE,
+// 			z * MOUNTAIN_SCALE,
+// 			seed,
+// 			MOUNTAIN_OCTAVES,
+// 			MOUNTAIN_LACUNARITY,
+// 			MOUNTAIN_PERSISTENCE,
+// 		) *
+// 			MOUNTAIN_HEIGHT_MULT \
+// 	)
+// }
 
 get_biome_weights :: proc(xes, zes: #simd[4]f64, seed: u64, scale: f64) -> [4]Biome {
 	noises := algorithms.noise_gen_2d(xes * scale, zes * scale, seed)
-	ns := transmute([4]f64)noises
+	ns := simd.to_array(noises)
 	return [4]Biome {
 		get_biome_from_noise(ns[0]),
 		get_biome_from_noise(ns[1]),
