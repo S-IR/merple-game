@@ -79,6 +79,7 @@ MOUNTAIN_BASE_HEIGHT :: 0
 get_biome_weights :: proc(xes, zes: #simd[4]f64, seed: u64, scale: f64) -> [4]Biome {
 	noises := algorithms.noise_gen_2d(xes * scale, zes * scale, seed)
 	ns := simd.to_array(noises)
+
 	return [4]Biome {
 		get_biome_from_noise(ns[0]),
 		get_biome_from_noise(ns[1]),
