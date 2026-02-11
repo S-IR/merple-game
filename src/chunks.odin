@@ -43,6 +43,7 @@ Chunk :: struct {
 	arena:        virtual.Arena,
 	alloc:        mem.Allocator,
 }
+
 chunk_point_get :: proc(c: ^Chunk, x, y, z: i64) -> Point {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
@@ -59,6 +60,7 @@ NEXT_JITTER: u16 = 0
 chunks_init :: proc(c: ^Camera) {
 	centerChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	half :: CHUNKS_PER_DIRECTION / 2
+
 
 	for &jitter in JITTER_POOL do jitter = float3{rand.float32(), rand.float32(), rand.float32()}
 	for x in 0 ..< CHUNKS_PER_DIRECTION {
@@ -92,9 +94,10 @@ MAX_COLORS :: MAX_INDICES
 BIOME_SCALE :: 0.001
 chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 	chunk := &Chunks[xIdx][zIdx]
-	if chunk.pointsSBO != nil {sdl.ReleaseGPUBuffer(device, chunk.pointsSBO);chunk.pointsSBO = nil}
-	if chunk.indices != nil {sdl.ReleaseGPUBuffer(device, chunk.indices);chunk.indices = nil}
-	if chunk.colors != nil {sdl.ReleaseGPUBuffer(device, chunk.colors);chunk.colors = nil}
+	if chunk.pointsSBO !=
+	   nil {sdl.ReleaseGPUBuffer(device, chunk.pointsSBO); chunk.pointsSBO = nil}
+	if chunk.indices != nil {sdl.ReleaseGPUBuffer(device, chunk.indices); chunk.indices = nil}
+	if chunk.colors != nil {sdl.ReleaseGPUBuffer(device, chunk.colors); chunk.colors = nil}
 
 	if chunk.alloc == {} {
 		chunk.alloc = virtual.arena_allocator(&chunk.arena)
@@ -108,6 +111,7 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 		allocator = context.temp_allocator,
 	)
 	staticVisiblePointsLen: int = 0
+
 
 	staticIndices := make([dynamic]u16, len = MAX_INDICES, allocator = context.temp_allocator)
 	staticIndicesLen: int = 0
@@ -428,9 +432,9 @@ chunks_release :: proc() {
 	}
 }
 chunk_release :: proc(c: ^Chunk) {
-	sdl.ReleaseGPUBuffer(device, c.pointsSBO);c.pointsSBO = nil
-	sdl.ReleaseGPUBuffer(device, c.colors);c.colors = nil
-	sdl.ReleaseGPUBuffer(device, c.indices);c.indices = nil
+	sdl.ReleaseGPUBuffer(device, c.pointsSBO); c.pointsSBO = nil
+	sdl.ReleaseGPUBuffer(device, c.colors); c.colors = nil
+	sdl.ReleaseGPUBuffer(device, c.indices); c.indices = nil
 
 	free_all(c.alloc)
 }

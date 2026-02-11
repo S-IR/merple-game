@@ -4,16 +4,16 @@ import "core:math/noise"
 import "core:math/rand"
 import "core:simd"
 
-fbm_noise :: proc(xy: [2]f64, amplitude: f64 = 1.0, octaves: f64 = 1.0) -> f64 {
-	amplitudeLocal := amplitude
-	fbmNoise: f64 = 0
-	for i in 0 ..< octaves {
-		fbmNoise += perlin_noise(xy) * amplitude
-		amplitudeLocal *= .5
-	}
-	return fbmNoise
+// fbm_noise :: proc(xy: [2]f64, amplitude: f64 = 1.0, octaves: f64 = 1.0) -> f64 {
+// 	amplitudeLocal := amplitude
+// 	fbmNoise: f64 = 0
+// 	for i in 0 ..< octaves {
+// 		fbmNoise += perlin_noise(xy) * amplitude
+// 		amplitudeLocal *= .5
+// 	}
+// 	return fbmNoise
 
-}
+// }
 
 // perlin_noise :: proc(xy: #simd[2]f64) -> f64 {
 // 	gridId := simd.floor(xy)
@@ -26,3 +26,6 @@ fbm_noise :: proc(xy: [2]f64, amplitude: f64 = 1.0, octaves: f64 = 1.0) -> f64 {
 
 // 	g1 := rando
 // }
+noise_gen_2d :: proc(xes, zes: #simd[4]f64, seed: u64) -> #simd[4]f64 {
+	return {1, 1, 1, 1}
+}
