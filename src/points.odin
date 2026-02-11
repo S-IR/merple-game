@@ -20,8 +20,8 @@ Point :: u16
 Point_r: struct {
 	pipeline: ^sdl.GPUGraphicsPipeline,
 } = {}
-POINT_VERTEX_SHADER_SPV :: #load("../build/shader-binaries/point.vert.spv")
-POINT_FRAGMENT_SHADER_SPV :: #load("../build/shader-binaries/point.frag.spv")
+POINT_VERTEX_SHADER_SPV :: #load("../build/shader-binaries/point.vertex.spv")
+POINT_FRAGMENT_SHADER_SPV :: #load("../build/shader-binaries/point.fragment.spv")
 
 
 // BottomFacedVertices := [4]float3 {

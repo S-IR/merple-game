@@ -1,7 +1,7 @@
 [
   {
-    "label": "run-dev",
-    "command": " odin build src -out:build/debug.exe -debug; raddbg --ipc run",
+    "label": "build-dev",
+    "command": "odin build src -out:build/debug.exe -debug",
     //"args": [],
     // Env overrides for the command, will be appended to the terminal's environment from the settings.
     // Current working directory to spawn the command into, defaults to current project root.
@@ -39,8 +39,8 @@
     // Whether to show the task line in the output of the spawned task, defaults to `true`.
     "show_summary": true,
     // Whether to show the command line in the output of the spawned task, defaults to `true`.
-    "show_command": true
+    "show_command": true,
     // Represents the tags for inline runnable indicators, or spawning multiple tasks at once.
     // "tags": []
-  }
+  },
 ]

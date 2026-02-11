@@ -11,7 +11,7 @@ SPIRV :: true
 PRINT_COMMAND :: true
 
 main :: proc() {
-	inputDir := filepath.join({"src", "glsl"})
+	inputDir := filepath.join({"src", "hlsl"})
 	outputDir := filepath.join({"./build", "shader-binaries"})
 
 	cwd, err := os.get_executable_directory(context.temp_allocator)
@@ -35,7 +35,7 @@ main :: proc() {
 			continue
 		}
 
-		if !strings.has_suffix(file.fullpath, ".glsl") do continue
+		if !strings.has_suffix(file.fullpath, ".hlsl") do continue
 
 		relPath, relErr := filepath.rel(inputDir, file.fullpath)
 		if relErr != nil {
@@ -59,26 +59,22 @@ compile_shader :: proc(path, dir, ext: string, stage: enum {
 		vertex,
 		fragment,
 	}) {
-	name := strings.trim_suffix(filepath.base(path), ".glsl")
-	stageStr := stage == .vertex ? "vert" : "frag"
-	define := stage == .vertex ? "VERTEX" : "FRAGMENT"
-	debugLine := "-g" when ODIN_DEBUG else ""
-
+	name := strings.trim_suffix(filepath.base(path), ".hlsl")
+	stage := stage == .vertex ? "vertex" : "fragment"
+	define := strings.to_upper(stage)
+	debugLine := "--debug" when ODIN_DEBUG else ""
 	os.make_directory_all(dir)
+	cmd := make([dynamic]string)
+	append(&cmd, "shadercross")
+	append(&cmd, path)
+	when ODIN_DEBUG do append(&cmd, debugLine)
+	append(&cmd, "--stage")
+	append(&cmd, string(stage))
+	append(&cmd, "--output")
+	append(&cmd, filepath.join({dir, strings.join({name, stage, ext}, ".")}))
+	append(&cmd, fmt.tprintf("-D%s", define))
 
-	exec(
-		{
-			"glslangValidator",
-			"-V",
-			debugLine,
-			"-o",
-			filepath.join({dir, strings.join({name, stageStr, ext}, ".")}),
-			"-S",
-			stageStr,
-			fmt.tprintf("-D%s", define),
-			path,
-		},
-	)
+	exec(cmd[:])
 }
 
 exec :: proc(command: []string) {
