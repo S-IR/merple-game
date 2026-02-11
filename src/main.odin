@@ -115,7 +115,6 @@ main :: proc() {
 	e: sdl.Event
 	quit := false
 
-	free_all(context.temp_allocator)
 	lastFrameTime := time.now()
 	FPS :: 144
 	frameTime := time.Duration(time.Second / FPS)
@@ -130,6 +129,8 @@ main :: proc() {
 	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
 	camera = Camera_new(pos = middleOfMiddleChunkPos)
 	chunks_init(&camera)
+	free_all(context.temp_allocator)
+
 	for !quit {
 
 		defer free_all(context.temp_allocator)
