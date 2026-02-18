@@ -101,6 +101,7 @@ Camera_view_proj :: proc(c: ^Camera) -> (view, proj: matrix[4, 4]f32) {
 		f32(near_plane),
 		f32(far_plane),
 	)
+	proj[1][1] *= -1
 
 	return view, proj
 

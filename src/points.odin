@@ -8,7 +8,7 @@ import "core:mem"
 import "core:path/filepath"
 import "core:time"
 import sdl "vendor:sdl3"
-
+import vk "vendor:vulkan"
 PointType :: enum (u16) {
 	Air,
 	Ground,
@@ -20,8 +20,6 @@ Point :: u16
 Point_r: struct {
 	pipeline: ^sdl.GPUGraphicsPipeline,
 } = {}
-POINT_VERTEX_SHADER_SPV :: #load("../build/shader-binaries/point.vertex.spv")
-POINT_FRAGMENT_SHADER_SPV :: #load("../build/shader-binaries/point.fragment.spv")
 
 
 // BottomFacedVertices := [4]float3 {
@@ -32,86 +30,173 @@ POINT_FRAGMENT_SHADER_SPV :: #load("../build/shader-binaries/point.fragment.spv"
 // }
 
 BottomFacedIndices := [?]u16{0, 1, 2, 0, 2, 3}
+PipelineData :: struct {
+	descriptorSetLayout: vk.DescriptorSetLayout,
+	layout:              vk.PipelineLayout,
+	graphicsPipeline:    vk.Pipeline,
+}
 
+point_pipeline_init :: proc() -> (p: PipelineData) {
 
-Vertices_pipeline_init :: proc() {
-
-	format := sdl.GetGPUShaderFormats(device)
-
-	vertexShader := sdl.CreateGPUShader(
-		device,
-		sdl.GPUShaderCreateInfo {
-			code = raw_data(POINT_VERTEX_SHADER_SPV),
-			code_size = len(POINT_VERTEX_SHADER_SPV),
-			entrypoint = "main",
-			format = format,
-			stage = .VERTEX,
-			num_samplers = 0,
-			num_uniform_buffers = 1,
-			num_storage_buffers = 0,
-			num_storage_textures = 0,
+	// --- Descriptor layout (matches SDL shader usage) ---
+	descLayoutBindings := [?]vk.DescriptorSetLayoutBinding {
+		// binding 0 → vertex uniform buffer
+		{
+			binding = 0,
+			descriptorType = .UNIFORM_BUFFER,
+			descriptorCount = 1,
+			stageFlags = {.VERTEX},
 		},
-	)
-	sdl_ensure(vertexShader != nil)
-	fragmentShader := sdl.CreateGPUShader(
-		device,
-		sdl.GPUShaderCreateInfo {
-			code = raw_data(POINT_FRAGMENT_SHADER_SPV),
-			code_size = len(POINT_FRAGMENT_SHADER_SPV),
-			entrypoint = "main",
-			format = format,
-			stage = .FRAGMENT,
-			num_samplers = 0,
-			num_uniform_buffers = 0,
-			num_storage_buffers = 1,
-			num_storage_textures = 0,
+		// binding 1 → fragment storage buffer
+		{
+			binding = 1,
+			descriptorType = .STORAGE_BUFFER,
+			descriptorCount = 1,
+			stageFlags = {.FRAGMENT},
 		},
-	)
-	color_target_descriptions := [?]sdl.GPUColorTargetDescription {
-		{format = sdl.GetGPUSwapchainTextureFormat(device, window)},
 	}
 
-	vertexAttributes := [?]sdl.GPUVertexAttribute {
-		{location = 0, format = .FLOAT3, offset = 0, buffer_slot = 0},
+	vk_chk(
+		vk.CreateDescriptorSetLayout(
+			vkDevice,
+			&vk.DescriptorSetLayoutCreateInfo {
+				sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+				flags = {.PUSH_DESCRIPTOR_KHR},
+				bindingCount = len(descLayoutBindings),
+				pBindings = raw_data(descLayoutBindings[:]),
+			},
+			nil,
+			&p.descriptorSetLayout,
+		),
+	)
+
+	// --- Load shaders ---
+	VERT_SPV :: #load("../build/shader-binaries/point.vertex.spv")
+	FRAG_SPV :: #load("../build/shader-binaries/point.fragment.spv")
+
+	vertModule := create_shader_module(vkDevice, VERT_SPV)
+	fragModule := create_shader_module(vkDevice, FRAG_SPV)
+
+	defer vk.DestroyShaderModule(vkDevice, vertModule, nil)
+	defer vk.DestroyShaderModule(vkDevice, fragModule, nil)
+	// --- Pipeline layout ---
+	vk_chk(
+		vk.CreatePipelineLayout(
+			vkDevice,
+			&vk.PipelineLayoutCreateInfo {
+				sType = .PIPELINE_LAYOUT_CREATE_INFO,
+				setLayoutCount = 1,
+				pSetLayouts = &p.descriptorSetLayout,
+			},
+			nil,
+			&p.layout,
+		),
+	)
+
+	// --- Vertex input (float3 at location 0) ---
+	viBindings := [?]vk.VertexInputBindingDescription {
+		{binding = 0, stride = size_of([3]f32), inputRate = .VERTEX},
 	}
 
-	vertexBufferDescriptions := [?]sdl.GPUVertexBufferDescription {
-		{slot = 0, pitch = size_of(float3), input_rate = .VERTEX},
+	vaDescriptors := [?]vk.VertexInputAttributeDescription {
+		{location = 0, binding = 0, format = .R32G32B32_SFLOAT, offset = 0},
 	}
-	Point_r.pipeline = sdl.CreateGPUGraphicsPipeline(
-		device,
-		sdl.GPUGraphicsPipelineCreateInfo {
-			target_info = {
-				num_color_targets = len(color_target_descriptions),
-				color_target_descriptions = raw_data(color_target_descriptions[:]),
-				has_depth_stencil_target = true,
-				depth_stencil_format = .D24_UNORM,
-			},
-			vertex_input_state = sdl.GPUVertexInputState {
-				num_vertex_buffers = len(vertexBufferDescriptions),
-				vertex_buffer_descriptions = raw_data(vertexBufferDescriptions[:]),
-				num_vertex_attributes = len(vertexAttributes),
-				vertex_attributes = raw_data(vertexAttributes[:]),
-			},
-			depth_stencil_state = sdl.GPUDepthStencilState {
-				enable_depth_test = true,
-				enable_depth_write = true,
-				enable_stencil_test = false,
-				compare_op = .LESS,
-				write_mask = 0xFF,
-			},
-			primitive_type = .TRIANGLELIST,
-			vertex_shader = vertexShader,
-			fragment_shader = fragmentShader,
+
+	dynamicStates := [?]vk.DynamicState{.VIEWPORT, .SCISSOR}
+
+	pipelineStages := [?]vk.PipelineShaderStageCreateInfo {
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.VERTEX},
+			module = vertModule,
+			pName = "main",
 		},
+		{
+			sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
+			stage = {.FRAGMENT},
+			module = fragModule,
+			pName = "main",
+		},
+	}
+
+	// --- Graphics pipeline ---
+	vk_chk(
+		vk.CreateGraphicsPipelines(
+			vkDevice,
+			{},
+			1,
+			&vk.GraphicsPipelineCreateInfo {
+				sType = .GRAPHICS_PIPELINE_CREATE_INFO,
+				pNext = &vk.PipelineRenderingCreateInfo {
+					sType = .PIPELINE_RENDERING_CREATE_INFO,
+					colorAttachmentCount = 1,
+					pColorAttachmentFormats = &vkSwapchainImageFormat,
+					depthAttachmentFormat = vkDepthFormat,
+				},
+				stageCount = len(pipelineStages),
+				pStages = raw_data(pipelineStages[:]),
+				pVertexInputState = &vk.PipelineVertexInputStateCreateInfo {
+					sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+					vertexBindingDescriptionCount = len(viBindings),
+					pVertexBindingDescriptions = raw_data(viBindings[:]),
+					vertexAttributeDescriptionCount = len(vaDescriptors),
+					pVertexAttributeDescriptions = raw_data(vaDescriptors[:]),
+				},
+				pInputAssemblyState = &vk.PipelineInputAssemblyStateCreateInfo {
+					sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+					topology = .TRIANGLE_LIST,
+				},
+				pViewportState = &vk.PipelineViewportStateCreateInfo {
+					sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+					viewportCount = 1,
+					scissorCount = 1,
+				},
+				pRasterizationState = &vk.PipelineRasterizationStateCreateInfo {
+					sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+					lineWidth = 1.0,
+					cullMode = {.BACK},
+					frontFace = .COUNTER_CLOCKWISE,
+				},
+				pMultisampleState = &vk.PipelineMultisampleStateCreateInfo {
+					sType = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+					rasterizationSamples = {._1},
+				},
+				pDepthStencilState = &vk.PipelineDepthStencilStateCreateInfo {
+					sType = .PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+					depthTestEnable = true,
+					depthWriteEnable = true,
+					depthCompareOp = .LESS,
+				},
+				pColorBlendState = &vk.PipelineColorBlendStateCreateInfo {
+					sType = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+					attachmentCount = 1,
+					pAttachments = &vk.PipelineColorBlendAttachmentState {
+						colorWriteMask = {.R, .G, .B, .A},
+					},
+				},
+				pDynamicState = &vk.PipelineDynamicStateCreateInfo {
+					sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+					dynamicStateCount = len(dynamicStates),
+					pDynamicStates = raw_data(dynamicStates[:]),
+				},
+				layout = p.layout,
+			},
+			nil,
+			&p.graphicsPipeline,
+		),
 	)
 
 
+	return p
 }
 
 
-Vertices_pipeline_release :: proc() {
-	sdl.ReleaseGPUGraphicsPipeline(device, Point_r.pipeline); Point_r.pipeline = nil
+pipeline_data_delete :: proc(p: PipelineData) {
+	if p.descriptorSetLayout != {} do vk.DestroyDescriptorSetLayout(vkDevice, p.descriptorSetLayout, nil)
+
+	if p.layout != {} do vk.DestroyPipelineLayout(vkDevice, p.layout, nil)
+
+	if p.graphicsPipeline != {} do vk.DestroyPipeline(vkDevice, p.graphicsPipeline, nil)
 
 }
 

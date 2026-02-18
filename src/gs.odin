@@ -2,11 +2,11 @@ package main
 import sdl "vendor:sdl3"
 
 
-screenWidth: i32 = 1280
-screenHeight: i32 = 720
+screenWidth: u32 = 1280
+screenHeight: u32 = 720
 
 seed: u64 = 123
-device: ^sdl.GPUDevice
+// device: ^sdl.GPUDevice
 window: ^sdl.Window
 
 

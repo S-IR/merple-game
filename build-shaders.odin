@@ -7,11 +7,10 @@ import "core:path/filepath"
 import "core:strings"
 
 SPIRV :: true
-// DXIL :: false
 PRINT_COMMAND :: true
 
 main :: proc() {
-	inputDir := filepath.join({"src", "hlsl"})
+	inputDir := filepath.join({"src", "glsl"})
 	outputDir := filepath.join({"./build", "shader-binaries"})
 
 	cwd, err := os.get_executable_directory(context.temp_allocator)
@@ -35,7 +34,7 @@ main :: proc() {
 			continue
 		}
 
-		if !strings.has_suffix(file.fullpath, ".hlsl") do continue
+		if !strings.has_suffix(file.fullpath, ".glsl") do continue
 
 		relPath, relErr := filepath.rel(inputDir, file.fullpath)
 		if relErr != nil {
@@ -49,9 +48,7 @@ main :: proc() {
 			compile_shader(file.fullpath, actualOutputPath, "spv", .vertex)
 			compile_shader(file.fullpath, actualOutputPath, "spv", .fragment)
 		}
-		// if DXIL {
-		// 	// add later if you integrate dxc.exe
-		// }
+
 	}
 }
 
@@ -59,21 +56,26 @@ compile_shader :: proc(path, dir, ext: string, stage: enum {
 		vertex,
 		fragment,
 	}) {
-	name := strings.trim_suffix(filepath.base(path), ".hlsl")
-	stage := stage == .vertex ? "vertex" : "fragment"
-	define := strings.to_upper(stage)
-	debugLine := "--debug" when ODIN_DEBUG else ""
+	name := strings.trim_suffix(filepath.base(path), ".glsl")
+	stageString := stage == .vertex ? "vertex" : "fragment"
+	stageAbbreviated := stage == .vertex ? "vert" : "frag"
+
+	define := strings.to_upper(stageString)
+	when ODIN_DEBUG do debugLine :: "-G"
+
+
 	os.make_directory_all(dir)
 	cmd := make([dynamic]string)
-	append(&cmd, "shadercross")
-	append(&cmd, path)
+	append(&cmd, "glslangValidator")
 	when ODIN_DEBUG do append(&cmd, debugLine)
-	append(&cmd, "--stage")
-	append(&cmd, string(stage))
-	append(&cmd, "--output")
-	append(&cmd, filepath.join({dir, strings.join({name, stage, ext}, ".")}))
+	append(&cmd, "-S")
+	append(&cmd, stageAbbreviated)
+	append(&cmd, "--target-env")
+	append(&cmd, "vulkan1.3")
 	append(&cmd, fmt.tprintf("-D%s", define))
-
+	append(&cmd, "-o")
+	append(&cmd, filepath.join({dir, strings.join({name, stageString, ext}, ".")}))
+	append(&cmd, path)
 	exec(cmd[:])
 }
 

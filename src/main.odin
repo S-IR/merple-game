@@ -1,5 +1,7 @@
 package main
+import "../modules/vma"
 import "base:runtime"
+import "core:c"
 import "core:fmt"
 import "core:math/rand"
 import "core:mem"
@@ -8,6 +10,7 @@ import "core:prof/spall"
 import "core:sync"
 import "core:time"
 import sdl "vendor:sdl3"
+import vk "vendor:vulkan"
 
 
 sdl_ensure :: proc(cond: bool, message: string = "") {
@@ -19,7 +22,7 @@ float2 :: [2]f32
 float3 :: [3]f32
 float4 :: [4]f32
 
-ENABLE_SPALL :: true && ODIN_DEBUG
+ENABLE_SPALL :: false && ODIN_DEBUG
 when ODIN_DEBUG && ENABLE_SPALL {
 	spall_ctx: spall.Context
 	@(thread_local)
@@ -81,37 +84,23 @@ main :: proc() {
 		}
 
 	}
-	width := 1280
-	height := 720
 	sdl_ensure(sdl.Init({.VIDEO, .EVENTS}))
-	window = sdl.CreateWindow("Merple", i32(width), i32(height), {.RESIZABLE})
+	window = sdl.CreateWindow("Merple", i32(screenWidth), i32(screenHeight), {.RESIZABLE})
 	sdl_ensure(window != nil)
 	defer sdl.DestroyWindow(window)
 	sdl.SetLogPriorities(.WARN)
 
-	device = sdl.CreateGPUDevice({.SPIRV}, true, nil)
-	sdl_ensure(device != nil)
-	defer sdl.DestroyGPUDevice(device)
+	// device = sdl.CreateGPUDevice({.SPIRV}, true, nil)
+	vulkan_init()
+	defer vulkan_cleanup()
+	// sdl_ensure(device != nil)
+	// defer sdl.DestroyGPUDevice(device)
 
-	sdl_ensure(sdl.ClaimWindowForGPUDevice(device, window) != false)
+	// sdl_ensure(sdl.ClaimWindowForGPUDevice(device, window) != false)
 
-	defer chunks_release()
-	Vertices_pipeline_init()
-	defer Vertices_pipeline_release()
-	depthTexture := sdl.CreateGPUTexture(
-		device,
-		sdl.GPUTextureCreateInfo {
-			type = .D2,
-			width = u32(screenWidth),
-			height = u32(screenHeight),
-			layer_count_or_depth = 1,
-			num_levels = 1,
-			sample_count = ._1,
-			format = .D24_UNORM,
-			usage = {.DEPTH_STENCIL_TARGET},
-		},
-	)
-	defer sdl.ReleaseGPUTexture(device, depthTexture)
+	pointPipeline := point_pipeline_init()
+	defer pipeline_data_delete(pointPipeline)
+
 	e: sdl.Event
 	quit := false
 
@@ -129,8 +118,10 @@ main :: proc() {
 	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
 	camera = Camera_new(pos = middleOfMiddleChunkPos)
 	chunks_init(&camera)
-	free_all(context.temp_allocator)
+	defer chunks_release()
 
+	free_all(context.temp_allocator)
+	defer vk.DeviceWaitIdle(vkDevice)
 	for !quit {
 
 		defer free_all(context.temp_allocator)
@@ -138,15 +129,13 @@ main :: proc() {
 			frameEnd := time.now()
 			frameDuration := time.diff(frameEnd, lastFrameTime)
 
-
-			if frameDuration < frameTime {
-				sleepTime := frameTime - frameDuration
-				time.sleep(sleepTime)
-			}
-
 			dt = time.duration_seconds(time.since(lastFrameTime))
 			lastFrameTime = time.now()
 		}
+		defer {
+			prevScreenWidth, prevScreenHeight = screenWidth, screenHeight
+		}
+
 
 		for sdl.PollEvent(&e) {
 
@@ -162,65 +151,14 @@ main :: proc() {
 				switch e.key.key {
 				case sdl.K_ESCAPE:
 					quit = true
-				case sdl.K_F11:
-					flags := sdl.GetWindowFlags(window)
-					if .FULLSCREEN in flags {
-						sdl.SetWindowFullscreen(window, false)
-					} else {
-						sdl.SetWindowFullscreen(window, true)
-					}
-				case sdl.K_J:
-					// Scale_3d +
-					Scale_3d += SCALE_STEP
-					fmt.println("Scale_3d:", Scale_3d)
-					chunks_init(&camera)
-
-				case sdl.K_K:
-					// Scale_3d -
-					Scale_3d -= SCALE_STEP
-					fmt.println("Scale_3d:", Scale_3d)
-					chunks_init(&camera)
-
-				case sdl.K_U:
-					// Octaves +
-					Octaves += OCTAVE_STEP
-					fmt.println("Octaves:", Octaves)
-					chunks_init(&camera)
-
-				case sdl.K_I:
-					// Octaves -
-					if Octaves > 1 do Octaves -= OCTAVE_STEP
-					fmt.println("Octaves:", Octaves)
-					chunks_init(&camera)
-
-				case sdl.K_O:
-					// Persistence +
-					Persistence += PERSIST_STEP
-					fmt.println("Persistence:", Persistence)
-					chunks_init(&camera)
-
-				case sdl.K_P:
-					// Persistence -
-					Persistence -= PERSIST_STEP
-					fmt.println("Persistence:", Persistence)
-					chunks_init(&camera)
-
-				case sdl.K_N:
-					// Lacunarity +
-					Lacunarity += LACUNARITY_STEP
-					fmt.println("Lacunarity:", Lacunarity)
-					chunks_init(&camera)
-
-				case sdl.K_M:
-					// Lacunarity -
-					Lacunarity -= LACUNARITY_STEP
-					fmt.println("Lacunarity:", Lacunarity)
-					chunks_init(&camera)
 				}
 
 
 			case .WINDOW_RESIZED:
-				screenWidth, screenHeight = e.window.data1, e.window.data2
+				screenWidth, screenHeight = u32(e.window.data1), u32(e.window.data2)
+				if screenWidth != prevScreenWidth || screenHeight != prevScreenHeight {
+					vkUpdateSwapchain = true
+				}
 			case .MOUSE_MOTION:
 				Camera_process_mouse_movement(&camera, e.motion.xrel, e.motion.yrel)
 			case:
@@ -228,66 +166,192 @@ main :: proc() {
 			}
 		}
 		if prevScreenWidth != screenWidth || prevScreenHeight != screenHeight {
-			sdl.SetWindowSize(window, screenWidth, screenHeight)
-
-			sdl.ReleaseGPUTexture(device, depthTexture)
-			depthTexture = sdl.CreateGPUTexture(
-				device,
-				sdl.GPUTextureCreateInfo {
-					type = .D2,
-					width = u32(screenWidth),
-					height = u32(screenHeight),
-					layer_count_or_depth = 1,
-					num_levels = 1,
-					sample_count = ._1,
-					format = .D24_UNORM,
-					usage = {.DEPTH_STENCIL_TARGET},
-				},
-			)
-
+			sdl.SetWindowSize(window, i32(screenWidth), i32(screenHeight))
+			vkUpdateSwapchain = true
 			sdl.SyncWindow(window)
-			prevScreenWidth = screenWidth
-			prevScreenHeight = screenHeight
+
 		}
+		vulkan_update_swapchain()
 
 		Camera_process_keyboard_movement(&camera)
 		chunks_shift_per_player_movement(&camera)
-		cmdBuf := sdl.AcquireGPUCommandBuffer(device)
-		if cmdBuf == nil do continue
-		defer sdl_ensure(sdl.SubmitGPUCommandBuffer(cmdBuf) != false)
 
-		swapTexture: ^sdl.GPUTexture
-		if sdl.WaitAndAcquireGPUSwapchainTexture(cmdBuf, window, &swapTexture, nil, nil) == false do continue
-		color_target_info := sdl.GPUColorTargetInfo {
-			texture     = swapTexture,
-			clear_color = {0.6, 0.8, 1.0, 1.0},
-			load_op     = .CLEAR,
-			store_op    = .STORE,
-		}
-		depth_stencil_target_info: sdl.GPUDepthStencilTargetInfo = {
-			texture          = depthTexture,
-			cycle            = true,
-			clear_depth      = 1,
-			clear_stencil    = 0,
-			load_op          = .CLEAR,
-			store_op         = .STORE,
-			stencil_load_op  = .CLEAR,
-			stencil_store_op = .STORE,
+		view, proj := Camera_view_proj(&camera)
+		cameraPtr: rawptr
+		vma.map_memory(vkAllocator, cameraBuffers[vkFrameIndex].alloc, &cameraPtr)
+		cameraUbo := CameraUBO {
+			view = view,
+			proj = proj,
 		}
 
+		mem.copy(cameraPtr, &cameraUbo, size_of(cameraUbo))
+		vma.unmap_memory(vkAllocator, cameraBuffers[vkFrameIndex].alloc)
 
-		render_pass := sdl.BeginGPURenderPass(
-			cmdBuf,
-			&color_target_info,
-			1,
-			&depth_stencil_target_info,
+		vulkan_update_swapchain()
+		vk_chk(vk.WaitForFences(vkDevice, 1, &vkFences[vkFrameIndex], true, max(u64)))
+		vk_run_deferred_buffer_releases(vkFrameIndex)
+
+		vk_chk(vk.ResetFences(vkDevice, 1, &vkFences[vkFrameIndex]))
+		vk_chk_swapchain(
+			vk.AcquireNextImageKHR(
+				vkDevice,
+				vkSwapchain,
+				max(u64),
+				vkPresentSemaphores[vkFrameIndex],
+				vk.Fence{},
+				&imageIndex,
+			),
 		)
 
 
-		view, proj := Camera_view_proj(&camera)
-		view_proj := proj * view
-		sdl.PushGPUVertexUniformData(cmdBuf, 0, &view_proj, size_of(view_proj))
-		chunks_draw(&render_pass, proj * view)
-		sdl.EndGPURenderPass(render_pass)
+		cb := vkDrawCommandBuffers[vkFrameIndex]
+		vk_chk(vk.ResetCommandBuffer(cb, {}))
+
+		vk_chk(
+			vk.BeginCommandBuffer(
+				cb,
+				&{sType = .COMMAND_BUFFER_BEGIN_INFO, flags = {.ONE_TIME_SUBMIT}},
+			),
+		)
+		barriers := [?]vk.ImageMemoryBarrier2 {
+			{
+				sType = .IMAGE_MEMORY_BARRIER_2,
+				srcStageMask = {.COLOR_ATTACHMENT_OUTPUT},
+				srcAccessMask = {},
+				dstStageMask = {.COLOR_ATTACHMENT_OUTPUT},
+				dstAccessMask = {.COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE},
+				oldLayout = .UNDEFINED,
+				newLayout = .ATTACHMENT_OPTIMAL,
+				image = vkSwapchainImages[imageIndex],
+				subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+			},
+			{
+				sType = .IMAGE_MEMORY_BARRIER_2,
+				srcStageMask = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
+				srcAccessMask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+				dstStageMask = {.EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS},
+				dstAccessMask = {.DEPTH_STENCIL_ATTACHMENT_WRITE},
+				oldLayout = .UNDEFINED,
+				newLayout = .ATTACHMENT_OPTIMAL,
+				image = vkDepthImage,
+				subresourceRange = {aspectMask = {.DEPTH}, levelCount = 1, layerCount = 1},
+			},
+		}
+		vk.CmdPipelineBarrier2(
+			cb,
+			&{
+				sType = .DEPENDENCY_INFO,
+				imageMemoryBarrierCount = len(barriers),
+				pImageMemoryBarriers = raw_data(barriers[:]),
+			},
+		)
+		vk.CmdBeginRendering(
+			cb,
+			&{
+				sType = .RENDERING_INFO,
+				renderArea = {extent = {width = screenWidth, height = screenHeight}},
+				layerCount = 1,
+				colorAttachmentCount = 1,
+				pColorAttachments = &vk.RenderingAttachmentInfo {
+					sType = .RENDERING_ATTACHMENT_INFO,
+					imageView = vkSwpachainImageViews[imageIndex],
+					imageLayout = .ATTACHMENT_OPTIMAL,
+					loadOp = .CLEAR,
+					storeOp = .STORE,
+					clearValue = {color = {float32 = {0.2, 0.4, 0.6, 1}}},
+				},
+				pDepthAttachment = &vk.RenderingAttachmentInfo {
+					sType = .RENDERING_ATTACHMENT_INFO,
+					imageView = vkDepthImageView,
+					imageLayout = .ATTACHMENT_OPTIMAL,
+					loadOp = .CLEAR,
+					storeOp = .DONT_CARE,
+					clearValue = {depthStencil = {1, 0}},
+				},
+			},
+		)
+
+		vk.CmdSetViewport(
+			cb,
+			0,
+			1,
+			&vk.Viewport {
+				width = f32(screenWidth),
+				height = f32(screenHeight),
+				minDepth = 0,
+				maxDepth = 1,
+			},
+		)
+		vk.CmdSetScissor(
+			cb,
+			0,
+			1,
+			&vk.Rect2D{extent = {width = screenWidth, height = screenHeight}},
+		)
+
+		// mu_layout()
+		// mu_render_ui(cb, textPipeline)
+		chunks_draw(
+			cb,
+			&pointPipeline,
+			cameraBuffers[vkFrameIndex].buffer,
+			vk.DeviceSize(size_of(CameraUBO)),
+		)
+
+		vk.CmdEndRendering(cb)
+
+		vk.CmdPipelineBarrier2(
+			cb,
+			&{
+				sType = .DEPENDENCY_INFO,
+				imageMemoryBarrierCount = 1,
+				pImageMemoryBarriers = &vk.ImageMemoryBarrier2 {
+					sType = .IMAGE_MEMORY_BARRIER_2,
+					srcStageMask = {.COLOR_ATTACHMENT_OUTPUT},
+					srcAccessMask = {.COLOR_ATTACHMENT_WRITE},
+					dstStageMask = {.COLOR_ATTACHMENT_OUTPUT},
+					dstAccessMask = {},
+					oldLayout = .COLOR_ATTACHMENT_OPTIMAL,
+					newLayout = .PRESENT_SRC_KHR,
+					image = vkSwapchainImages[imageIndex],
+					subresourceRange = {aspectMask = {.COLOR}, levelCount = 1, layerCount = 1},
+				},
+			},
+		)
+		vk.EndCommandBuffer(cb)
+		waitStage: vk.PipelineStageFlags = {.COLOR_ATTACHMENT_OUTPUT}
+		vk_chk(
+			vk.QueueSubmit(
+				vkQueue,
+				1,
+				&vk.SubmitInfo {
+					sType = .SUBMIT_INFO,
+					waitSemaphoreCount = 1,
+					pWaitSemaphores = &vkPresentSemaphores[vkFrameIndex],
+					pWaitDstStageMask = &waitStage,
+					commandBufferCount = 1,
+					pCommandBuffers = &cb,
+					signalSemaphoreCount = 1,
+					pSignalSemaphores = &vkRenderSemaphores[imageIndex],
+				},
+				vkFences[vkFrameIndex],
+			),
+		)
+		vkFrameIndex = (vkFrameIndex + 1) % MAX_FRAMES_IN_FLIGHT
+		vk_chk_swapchain(
+			vk.QueuePresentKHR(
+				vkQueue,
+				&{
+					sType = .PRESENT_INFO_KHR,
+					waitSemaphoreCount = 1,
+					pWaitSemaphores = &vkRenderSemaphores[imageIndex],
+					swapchainCount = 1,
+					pSwapchains = &vkSwapchain,
+					pImageIndices = &imageIndex,
+				},
+			),
+		)
+
+
 	}
 }

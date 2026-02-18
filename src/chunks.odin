@@ -1,5 +1,7 @@
 package main
+import "../modules/vma"
 import "algorithms"
+import "core:container/small_array"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -9,8 +11,7 @@ import "core:mem"
 import "core:mem/virtual"
 import "core:prof/spall"
 import "core:simd"
-import sdl "vendor:sdl3"
-
+import vk "vendor:vulkan"
 
 int3 :: [3]i32
 int2 :: [2]i32
@@ -35,9 +36,11 @@ VERTS_PER_Z_DIR: i64 : CUBES_PER_Z_DIR + 1
 Chunk :: struct {
 	pos:          int2,
 	points:       [CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR]Point,
-	pointsSBO:    ^sdl.GPUBuffer,
-	indices:      ^sdl.GPUBuffer,
-	colors:       ^sdl.GPUBuffer,
+	buffers:      struct {
+		pointsBuffer: [MAX_FRAMES_IN_FLIGHT]VkBufferPoolElem,
+		indices:      [MAX_FRAMES_IN_FLIGHT]VkBufferPoolElem,
+		colors:       [MAX_FRAMES_IN_FLIGHT]VkBufferPoolElem,
+	},
 	totalPoints:  u32,
 	totalIndices: u32,
 	arena:        virtual.Arena,
@@ -94,10 +97,57 @@ MAX_COLORS :: MAX_INDICES
 BIOME_SCALE :: 0.001
 chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 	chunk := &Chunks[xIdx][zIdx]
-	if chunk.pointsSBO !=
-	   nil {sdl.ReleaseGPUBuffer(device, chunk.pointsSBO); chunk.pointsSBO = nil}
-	if chunk.indices != nil {sdl.ReleaseGPUBuffer(device, chunk.indices); chunk.indices = nil}
-	if chunk.colors != nil {sdl.ReleaseGPUBuffer(device, chunk.colors); chunk.colors = nil}
+	INDEX_TYPE :: u16
+	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+		if chunk.buffers.pointsBuffer[i].alloc != {} do continue
+		assert(chunk.buffers.indices[i].buffer == {})
+		assert(chunk.buffers.colors[i].buffer == {})
+
+		vk_chk(
+			vma.create_buffer(
+				vkAllocator,
+				{
+					sType = .BUFFER_CREATE_INFO,
+					size = vk.DeviceSize(MAX_POINTS * size_of([3]f32)),
+					usage = {.VERTEX_BUFFER},
+				},
+				{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
+				&chunk.buffers.pointsBuffer[i].buffer,
+				&chunk.buffers.pointsBuffer[i].alloc,
+				nil,
+			),
+		)
+		vk_chk(
+			vma.create_buffer(
+				vkAllocator,
+				{
+					sType = .BUFFER_CREATE_INFO,
+					size = vk.DeviceSize(MAX_INDICES * size_of(INDEX_TYPE)),
+					usage = {.INDEX_BUFFER},
+				},
+				{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
+				&chunk.buffers.indices[i].buffer,
+				&chunk.buffers.indices[i].alloc,
+				nil,
+			),
+		)
+
+		vk_chk(
+			vma.create_buffer(
+				vkAllocator,
+				{
+					sType = .BUFFER_CREATE_INFO,
+					size = vk.DeviceSize(MAX_COLORS * size_of([4]f32)),
+					usage = {.STORAGE_BUFFER},
+				},
+				{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
+				&chunk.buffers.colors[i].buffer,
+				&chunk.buffers.colors[i].alloc,
+				nil,
+			),
+		)
+	}
+
 
 	if chunk.alloc == {} {
 		chunk.alloc = virtual.arena_allocator(&chunk.arena)
@@ -221,108 +271,104 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 			}
 		}
 	}
-
-	assert(staticVisiblePointsLen > 0)
-	chunk.pointsSBO = sdl.CreateGPUBuffer(
-		device,
-		{usage = {.VERTEX}, size = u32(staticVisiblePointsLen * size_of(float3))},
-	)
 	chunk.totalPoints = u32(staticVisiblePointsLen)
-
-	assert(staticIndicesLen > 0)
-	chunk.indices = sdl.CreateGPUBuffer(
-		device,
-		{usage = {.INDEX}, size = u32(staticIndicesLen * size_of(u16))},
-	)
 	chunk.totalIndices = u32(staticIndicesLen)
 
-	assert(staticColorsLen > 0)
-	chunk.colors = sdl.CreateGPUBuffer(
-		device,
-		{usage = {.GRAPHICS_STORAGE_READ}, size = u32(staticColorsLen * size_of(float4))},
-	)
+	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+		assert(chunk.buffers.pointsBuffer[i].alloc != {})
+		assert(chunk.buffers.indices[i].alloc != {})
+		assert(chunk.buffers.colors[i].alloc != {})
 
-	TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO :: 3
 
-	buffers := [TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO]^^sdl.GPUBuffer {
-		&chunk.pointsSBO,
-		&chunk.indices,
-		&chunk.colors,
+		vertBufferPtr: rawptr
+		vk_chk(vma.map_memory(vkAllocator, chunk.buffers.pointsBuffer[i].alloc, &vertBufferPtr))
+		mem.copy(
+			vertBufferPtr,
+			raw_data(staticVisiblePoints[0:staticVisiblePointsLen]),
+			staticVisiblePointsLen * size_of(staticVisiblePoints[0]),
+		)
+		vma.unmap_memory(vkAllocator, chunk.buffers.pointsBuffer[i].alloc)
+
+		index := chunk.buffers.indices[i]
+
+
+		indexBufferPtr: rawptr
+		vk_chk(vma.map_memory(vkAllocator, chunk.buffers.indices[i].alloc, &indexBufferPtr))
+		mem.copy(
+			indexBufferPtr,
+			raw_data(staticIndices[0:staticIndicesLen]),
+			staticIndicesLen * size_of(staticIndices[0]),
+		)
+		vma.unmap_memory(vkAllocator, chunk.buffers.indices[i].alloc)
+
+
+		colorBuferPtr: rawptr
+		vk_chk(vma.map_memory(vkAllocator, chunk.buffers.colors[i].alloc, &colorBuferPtr))
+		mem.copy(
+			colorBuferPtr,
+			raw_data(staticColors[0:staticColorsLen]),
+			staticColorsLen * size_of(staticColors[0]),
+		)
+		vma.unmap_memory(vkAllocator, chunk.buffers.colors[i].alloc)
 	}
-	datas := [TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO]rawptr {
-		raw_data(staticVisiblePoints[0:staticVisiblePointsLen]),
-		raw_data(staticIndices[0:staticIndicesLen]),
-		raw_data(staticColors[0:staticColorsLen]),
-	}
-	sizes := [TOTAL_COUNT_OF_BUFFERS_TO_UPLOAD_TO]uint {
-		uint(staticVisiblePointsLen * size_of(float3)),
-		uint(staticIndicesLen * size_of(u16)),
-		uint(staticColorsLen * size_of(float4)),
-	}
-	gpu_buffer_upload_batch(buffers[:], datas[:], sizes[:])
+
+
 }
 calculate_jitter_idx :: #force_inline proc(x, y, z: i64) -> u16 {
 	return u16((x + y + z) % i64(max(u16)))
 }
 chunks_shift_per_player_movement :: proc(c: ^Camera) {
-
 	xzOfCurrentCenterChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	xzOfPrevCenterChunk := Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos / CHUNK_SIZE
-
-
 	if xzOfCurrentCenterChunk == xzOfPrevCenterChunk do return
-
-
 	delta := xzOfCurrentCenterChunk - xzOfPrevCenterChunk
-	CHUNKS_PER_DIRECTION_HALF := CHUNKS_PER_DIRECTION / 2
+	half := CHUNKS_PER_DIRECTION / 2
 
 	if delta.x != 0 {
 		count := abs(delta.x)
 		for i in 0 ..< count {
 			if delta.x > 0 {
-				for z in 0 ..< CHUNKS_PER_DIRECTION {
-					chunk_release(&Chunks[0][z])
-				}
 				for x in 0 ..< CHUNKS_PER_DIRECTION - 1 {
 					for z in 0 ..< CHUNKS_PER_DIRECTION {
+						firstBuffers := Chunks[x][z].buffers
+						secondBuffers := Chunks[x + 1][z].buffers
 						Chunks[x][z] = Chunks[x + 1][z]
-						Chunks[x + 1][z].pointsSBO = nil
-						Chunks[x + 1][z].indices = nil
-						Chunks[x + 1][z].colors = nil
+						Chunks[x][z].buffers, Chunks[x + 1][z].buffers =
+							secondBuffers, firstBuffers
+						Chunks[x + 1][z].points = {}
 						Chunks[x + 1][z].arena = {}
 						Chunks[x + 1][z].alloc = {}
 					}
 				}
 				for z in 0 ..< CHUNKS_PER_DIRECTION {
-					rel_x := i32(CHUNKS_PER_DIRECTION - 1 - CHUNKS_PER_DIRECTION_HALF)
-					rel_z := i32(z - CHUNKS_PER_DIRECTION_HALF)
+					relX := i32(CHUNKS_PER_DIRECTION - 1 - half) + i32(i)
+					relZ := i32(z - half)
 					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
-						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_SIZE,
 					}
 					chunk_init(CHUNKS_PER_DIRECTION - 1, z, pos)
 				}
 			} else {
-
-				for z in 0 ..< CHUNKS_PER_DIRECTION {
-					chunk_release(&Chunks[CHUNKS_PER_DIRECTION - 1][z])
-				}
 				for x := CHUNKS_PER_DIRECTION - 1; x > 0; x -= 1 {
 					for z in 0 ..< CHUNKS_PER_DIRECTION {
+						firstBuffers := Chunks[x][z].buffers
+						secondBuffers := Chunks[x - 1][z].buffers
 						Chunks[x][z] = Chunks[x - 1][z]
-						Chunks[x - 1][z].pointsSBO = nil
-						Chunks[x - 1][z].indices = nil
-						Chunks[x - 1][z].colors = nil
+						Chunks[x][z].buffers, Chunks[x - 1][z].buffers =
+							secondBuffers, firstBuffers
+
+						Chunks[x - 1][z].points = {}
 						Chunks[x - 1][z].arena = {}
 						Chunks[x - 1][z].alloc = {}
 					}
 				}
 				for z in 0 ..< CHUNKS_PER_DIRECTION {
-					rel_x := i32(0 - CHUNKS_PER_DIRECTION_HALF)
-					rel_z := i32(z - CHUNKS_PER_DIRECTION_HALF)
+					relX := i32(0 - half) - i32(i)
+					relZ := i32(z - half)
 					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
-						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_SIZE,
 					}
 					chunk_init(0, z, pos)
 				}
@@ -334,107 +380,179 @@ chunks_shift_per_player_movement :: proc(c: ^Camera) {
 		count := abs(delta[1])
 		for i in 0 ..< count {
 			if delta[1] > 0 {
-				for x in 0 ..< CHUNKS_PER_DIRECTION {
-					chunk_release(&Chunks[x][0])
-				}
 				for z in 0 ..< CHUNKS_PER_DIRECTION - 1 {
 					for x in 0 ..< CHUNKS_PER_DIRECTION {
+						firstBuffers := Chunks[x][z].buffers
+						secondBuffers := Chunks[x][z + 1].buffers
 						Chunks[x][z] = Chunks[x][z + 1]
-						Chunks[x][z + 1].pointsSBO = nil
-						Chunks[x][z + 1].indices = nil
-						Chunks[x][z + 1].colors = nil
+						Chunks[x][z].buffers, Chunks[x][z + 1].buffers =
+							secondBuffers, firstBuffers
+
+						Chunks[x][z + 1].points = {}
 						Chunks[x][z + 1].arena = {}
 						Chunks[x][z + 1].alloc = {}
 					}
 				}
 				for x in 0 ..< CHUNKS_PER_DIRECTION {
-					rel_x := i32(x - CHUNKS_PER_DIRECTION_HALF)
-					rel_z := i32(CHUNKS_PER_DIRECTION - 1 - CHUNKS_PER_DIRECTION_HALF)
+					relX := i32(x - half)
+					relZ := i32(CHUNKS_PER_DIRECTION - 1 - half) + i32(i)
 					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
-						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_SIZE,
 					}
 					chunk_init(x, CHUNKS_PER_DIRECTION - 1, pos)
 				}
 			} else {
-				for x in 0 ..< CHUNKS_PER_DIRECTION {
-					chunk_release(&Chunks[x][CHUNKS_PER_DIRECTION - 1])
-				}
 				for z := CHUNKS_PER_DIRECTION - 1; z > 0; z -= 1 {
 					for x in 0 ..< CHUNKS_PER_DIRECTION {
+						firstBuffers := Chunks[x][z].buffers
+						secondBuffers := Chunks[x][z - 1].buffers
 						Chunks[x][z] = Chunks[x][z - 1]
-						Chunks[x][z - 1].pointsSBO = nil
-						Chunks[x][z - 1].indices = nil
-						Chunks[x][z - 1].colors = nil
+						Chunks[x][z].buffers, Chunks[x][z - 1].buffers =
+							secondBuffers, firstBuffers
+
+						Chunks[x][z - 1].points = {}
 						Chunks[x][z - 1].arena = {}
 						Chunks[x][z - 1].alloc = {}
 					}
 				}
 				for x in 0 ..< CHUNKS_PER_DIRECTION {
-					rel_x := i32(x - CHUNKS_PER_DIRECTION_HALF)
-					rel_z := i32(0 - CHUNKS_PER_DIRECTION_HALF)
+					relX := i32(x - half)
+					relZ := i32(0 - half) - i32(i)
 					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + rel_x) * CHUNK_SIZE,
-						(xzOfCurrentCenterChunk[1] + rel_z) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_SIZE,
+						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_SIZE,
 					}
 					chunk_init(x, 0, pos)
 				}
 			}
 		}
 	}
-
-
 }
-chunks_draw :: proc(render_pass: ^^sdl.GPURenderPass, view_proj: matrix[4, 4]f32) {
-	assert(render_pass != nil && render_pass^ != nil)
+chunks_draw :: proc(
+	cb: vk.CommandBuffer,
+	p: ^PipelineData,
+	cameraUbo: vk.Buffer,
+	cameraUboSize: vk.DeviceSize,
+) {
+	vk.CmdBindPipeline(cb, .GRAPHICS, p.graphicsPipeline)
+
 	for x in 0 ..< len(Chunks) {
 		for y in 0 ..< len(Chunks[0]) {
+
 			chunk := &Chunks[x][y]
-			if !is_chunk_in_camera_frustrum(chunk.pos, &camera) {
-				continue
+
+			// if !is_chunk_in_camera_frustrum(chunk.pos, &camera) do continue
+			if chunk.totalIndices == 0 do continue
+
+			// ----------------------------
+			// Bind vertex + index buffers
+			// ----------------------------
+			assert(chunk.buffers.pointsBuffer[vkFrameIndex].alloc != {})
+			vertexBuffer := chunk.buffers.pointsBuffer[vkFrameIndex].buffer
+			vertexOffset := vk.DeviceSize(0)
+
+			vk.CmdBindVertexBuffers(
+				cb,
+				0,
+				1, // <-- ONLY ONE BINDING
+				&vertexBuffer,
+				&vertexOffset,
+			)
+
+			vk.CmdBindIndexBuffer(cb, chunk.buffers.indices[vkFrameIndex].buffer, 0, .UINT16)
+
+			// ----------------------------
+			// Push descriptors
+			// ----------------------------
+
+			cameraInfo := vk.DescriptorBufferInfo {
+				buffer = cameraUbo,
+				offset = 0,
+				range  = cameraUboSize,
 			}
-			assert(chunk.pointsSBO != nil)
-			assert(chunk.indices != nil)
-			assert(chunk.colors != nil)
-			assert(chunk.totalIndices > 0)
-			assert(chunk.totalPoints > 0)
 
+			colorInfo := vk.DescriptorBufferInfo {
+				buffer = chunk.buffers.colors[vkFrameIndex].buffer,
+				offset = 0,
+				range  = vk.DeviceSize(vk.WHOLE_SIZE),
+			}
 
-			sdl.BindGPUGraphicsPipeline(render_pass^, Point_r.pipeline)
-			sdl.BindGPUIndexBuffer(render_pass^, {buffer = chunk.indices, offset = 0}, ._16BIT)
+			writes := [?]vk.WriteDescriptorSet {
+				{
+					sType = .WRITE_DESCRIPTOR_SET,
+					dstBinding = 0,
+					descriptorCount = 1,
+					descriptorType = .UNIFORM_BUFFER,
+					pBufferInfo = &cameraInfo,
+				},
+				{
+					sType = .WRITE_DESCRIPTOR_SET,
+					dstBinding = 1,
+					descriptorCount = 1,
+					descriptorType = .STORAGE_BUFFER,
+					pBufferInfo = &colorInfo,
+				},
+			}
 
-			vertexBufferBindings := [?]sdl.GPUBufferBinding{{buffer = chunk.pointsSBO}}
-			sdl.BindGPUVertexBuffers(
-				render_pass^,
+			vk.CmdPushDescriptorSetKHR(
+				cb,
+				.GRAPHICS,
+				p.layout,
 				0,
-				raw_data(vertexBufferBindings[:]),
-				len(vertexBufferBindings),
+				len(writes),
+				raw_data(writes[:]),
 			)
 
-			sbosFragment := [?]^sdl.GPUBuffer{chunk.colors}
-			sdl.BindGPUFragmentStorageBuffers(
-				render_pass^,
-				0,
-				raw_data(sbosFragment[:]),
-				len(sbosFragment),
-			)
+			// ----------------------------
+			// Draw
+			// ----------------------------
 
-			sdl.DrawGPUIndexedPrimitives(render_pass^, chunk.totalIndices, 1, 0, 0, 0)
+			vk.CmdDrawIndexed(cb, chunk.totalIndices, 1, 0, 0, 0)
 		}
-
 	}
 }
+
 chunks_release :: proc() {
 	for &chunkX in Chunks {
 		for &chunk in chunkX {
-			chunk_release(&chunk)
+			chunk_discard(&chunk)
 		}
 	}
 }
-chunk_release :: proc(c: ^Chunk) {
-	sdl.ReleaseGPUBuffer(device, c.pointsSBO); c.pointsSBO = nil
-	sdl.ReleaseGPUBuffer(device, c.colors); c.colors = nil
-	sdl.ReleaseGPUBuffer(device, c.indices); c.indices = nil
+chunk_discard :: proc(chunk: ^Chunk) {
+	assert(chunk != nil)
 
-	free_all(c.alloc)
+	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+		if chunk.buffers.pointsBuffer[i].alloc != {} {
+			vma.destroy_buffer(
+				vkAllocator,
+				chunk.buffers.pointsBuffer[i].buffer,
+				chunk.buffers.pointsBuffer[i].alloc,
+			)
+			chunk.buffers.pointsBuffer[i] = {}
+		}
+		if chunk.buffers.indices[i].alloc != {} {
+			vma.destroy_buffer(
+				vkAllocator,
+				chunk.buffers.indices[i].buffer,
+				chunk.buffers.indices[i].alloc,
+			)
+			chunk.buffers.indices[i] = {}
+		}
+		if chunk.buffers.colors[i].alloc != {} {
+			vma.destroy_buffer(
+				vkAllocator,
+				chunk.buffers.colors[i].buffer,
+				chunk.buffers.colors[i].alloc,
+			)
+			chunk.buffers.colors[i] = {}
+		}
+	}
+	chunk.buffers = {}
+
+	free_all(chunk.alloc)
+	chunk.pos = {0, 0}
+	chunk.totalPoints = 0
+	chunk.totalIndices = 0
 }

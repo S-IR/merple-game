@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+
+  "profile": "default",
+  "profiles": [
+    {
+      "name": "default",
+      "checker_path": ["src"],
+      "defines": { "ODIN_DEBUG": "true" }
+    },
+    {
+      "name": "linux_profile",
+      "os": "linux",
+      "checker_path": ["src/main.odin"],
+      "defines": { "ODIN_DEBUG": "true" }
+    },
+    {
+      "name": "mac_profile",
+      "os": "darwin",
+      "arch": "arm64",
+      "defines": { "ODIN_DEBUG": "true" }
+    },
+    {
+      "name": "windows_profile",
+      "os": "windows",
+      "checker_path": ["src"],
+      "defines": { "ODIN_DEBUG": "true" }
+    }
+  ]
+}
