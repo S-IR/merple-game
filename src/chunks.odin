@@ -95,9 +95,9 @@ MAX_POINTS :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 8
 MAX_INDICES :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 36
 MAX_COLORS :: MAX_INDICES
 BIOME_SCALE :: 0.001
+INDEX_TYPE_USED_IN_CHUNKS :: u32
 chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 	chunk := &Chunks[xIdx][zIdx]
-	INDEX_TYPE :: u16
 	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
 		if chunk.buffers.pointsBuffer[i].alloc != {} do continue
 		assert(chunk.buffers.indices[i].buffer == {})
@@ -122,7 +122,7 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 				vkAllocator,
 				{
 					sType = .BUFFER_CREATE_INFO,
-					size = vk.DeviceSize(MAX_INDICES * size_of(INDEX_TYPE)),
+					size = vk.DeviceSize(MAX_INDICES * size_of(INDEX_TYPE_USED_IN_CHUNKS)),
 					usage = {.INDEX_BUFFER},
 				},
 				{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
@@ -163,7 +163,11 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 	staticVisiblePointsLen: int = 0
 
 
-	staticIndices := make([dynamic]u16, len = MAX_INDICES, allocator = context.temp_allocator)
+	staticIndices := make(
+		[dynamic]INDEX_TYPE_USED_IN_CHUNKS,
+		len = MAX_INDICES,
+		allocator = context.temp_allocator,
+	)
 	staticIndicesLen: int = 0
 
 	staticColors := make([dynamic]float4, len = MAX_COLORS, allocator = context.temp_allocator)
@@ -256,7 +260,7 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 								vertIndex.y * VERTS_PER_Z_DIR +
 								vertIndex.z
 
-							staticIndices[staticIndicesLen] = u16(
+							staticIndices[staticIndicesLen] = INDEX_TYPE_USED_IN_CHUNKS(
 								EXISTING_VERTICES_MAPPER[existingIdx],
 							)
 							staticIndicesLen += 1
@@ -459,8 +463,9 @@ chunks_draw :: proc(
 				&vertexBuffer,
 				&vertexOffset,
 			)
+			#assert(INDEX_TYPE_USED_IN_CHUNKS == u32)
 
-			vk.CmdBindIndexBuffer(cb, chunk.buffers.indices[vkFrameIndex].buffer, 0, .UINT16)
+			vk.CmdBindIndexBuffer(cb, chunk.buffers.indices[vkFrameIndex].buffer, 0, .UINT32)
 
 			// ----------------------------
 			// Push descriptors
