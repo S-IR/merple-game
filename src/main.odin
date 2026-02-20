@@ -23,6 +23,7 @@ float3 :: [3]f32
 float4 :: [4]f32
 
 ENABLE_SPALL :: false && ODIN_DEBUG
+VISUAL_REPRESENTATION_OF_NOISE_FN_RUN :: true && ODIN_DEBUG
 when ODIN_DEBUG && ENABLE_SPALL {
 	spall_ctx: spall.Context
 	@(thread_local)
@@ -186,6 +187,8 @@ main :: proc() {
 
 		mem.copy(cameraPtr, &cameraUbo, size_of(cameraUbo))
 		vma.unmap_memory(vkAllocator, cameraBuffers[vkFrameIndex].alloc)
+		raycastPointHit, raycastDidHappen := raycast_get_viewed_point(&camera)
+		if raycastDidHappen do fmt.println("raycast point:", raycastPointHit)
 
 		vulkan_update_swapchain()
 		vk_chk(vk.WaitForFences(vkDevice, 1, &vkFences[vkFrameIndex], true, max(u64)))

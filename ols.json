@@ -6,7 +6,10 @@
     {
       "name": "default",
       "checker_path": ["src"],
-      "defines": { "ODIN_DEBUG": "true" }
+      "defines": {
+        "ODIN_DEBUG": "true",
+        "VISUAL_REPRESENTATION_OF_NOISE_FN_RUN": "true"
+      }
     },
     {
       "name": "linux_profile",
