@@ -121,7 +121,7 @@ procedural_point_type :: proc(x, y, z: i32, seed: u64, w: Biome) -> PointType {
 	)
 	noise += 1
 	assert(noise >= 0 && noise <= 2)
-	fmt.print("noise:", noise)
+	// fmt.print("noise:", noise)
 	// noise = (noise + 0.8) / 1.6
 
 	FOREST_POINTS := [?]PointType {
