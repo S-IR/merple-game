@@ -1,5 +1,5 @@
 package main
-cubeVertices := [8][3]i64 {
+cubeVertices := [8][3]i32 {
 	{0.0, 0.0, 1.0}, // 0: front bottom left
 	{1.0, 0.0, 1.0}, // 1: front bottom right
 	{1.0, 1.0, 1.0}, // 2: front top right

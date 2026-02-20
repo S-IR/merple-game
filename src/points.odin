@@ -9,13 +9,6 @@ import "core:path/filepath"
 import "core:time"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
-PointType :: enum (u16) {
-	Air,
-	Ground,
-}
-//last 6 bytes represents the corruption state
-Point :: u16
-
 
 Point_r: struct {
 	pipeline: ^sdl.GPUGraphicsPipeline,

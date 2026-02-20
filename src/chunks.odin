@@ -25,17 +25,17 @@ CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
 WIDTH_OF_CELL :: f32(1)
-CUBES_PER_X_DIR: i64 : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
-CUBES_PER_Z_DIR: i64 : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
-CUBES_PER_Y_DIR: i64 : auto_cast ((MAX_Y - MIN_Y) / WIDTH_OF_CELL)
+CUBES_PER_X_DIR: i32 : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
+CUBES_PER_Z_DIR: i32 : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
+CUBES_PER_Y_DIR: i32 : auto_cast ((MAX_Y - MIN_Y) / WIDTH_OF_CELL)
 
-VERTS_PER_X_DIR: i64 : CUBES_PER_X_DIR + 1
-VERTS_PER_Y_DIR: i64 : CUBES_PER_Y_DIR + 1
-VERTS_PER_Z_DIR: i64 : CUBES_PER_Z_DIR + 1
+VERTS_PER_X_DIR: i32 : CUBES_PER_X_DIR + 1
+VERTS_PER_Y_DIR: i32 : CUBES_PER_Y_DIR + 1
+VERTS_PER_Z_DIR: i32 : CUBES_PER_Z_DIR + 1
 
 Chunk :: struct {
 	pos:          int2,
-	points:       [CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR]Point,
+	points:       [CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR]PointType,
 	buffers:      struct {
 		pointsBuffer: [MAX_FRAMES_IN_FLIGHT]VkBufferPoolElem,
 		indices:      [MAX_FRAMES_IN_FLIGHT]VkBufferPoolElem,
@@ -47,7 +47,7 @@ Chunk :: struct {
 	alloc:        mem.Allocator,
 }
 
-chunk_point_get :: proc(c: ^Chunk, x, y, z: i64) -> Point {
+chunk_point_get :: proc(c: ^Chunk, x, y, z: i32) -> PointType {
 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 }
 
@@ -58,14 +58,13 @@ CHUNK_MIDDLE_X_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 CHUNK_MIDDLE_Z_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 
 ChunkAtTheCenter := int2{}
-JITTER_POOL := [max(u16)]float3{}
 NEXT_JITTER: u16 = 0
 chunks_init :: proc(c: ^Camera) {
 	centerChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	half :: CHUNKS_PER_DIRECTION / 2
 
 
-	for &jitter in JITTER_POOL do jitter = float3{rand.float32(), rand.float32(), rand.float32()}
+	// for &jitter in JITTER_POOL do jitter = float3{rand.float32(), rand.float32(), rand.float32()}
 	for x in 0 ..< CHUNKS_PER_DIRECTION {
 		for z in 0 ..< CHUNKS_PER_DIRECTION {
 			relX := i32(x - half)
@@ -88,8 +87,10 @@ RANDOM_RED_OPTIONS := [?]float4 {
 }
 
 // CUBE_NOISE_FIELD := [(CUBES_PER_X_DIR) * (CUBES_PER_Y_DIR) * (CUBES_PER_Z_DIR)]f32{}
-index_into_point_arrays :: #force_inline proc(x, y, z: i64) -> i64 {
-	return x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z
+index_into_point_arrays :: #force_inline proc(x, y, z: i32) -> i32 {
+	VERT_STRIDE_X :: VERTS_PER_Y_DIR * VERTS_PER_Z_DIR // 64*17 = 1088
+	VERT_STRIDE_Y :: VERTS_PER_Z_DIR // 17
+	return x * VERT_STRIDE_X + y * VERT_STRIDE_Y + z
 }
 MAX_POINTS :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 8
 MAX_INDICES :: CUBES_PER_X_DIR * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR * 36
@@ -185,96 +186,76 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 	posXF64 := f64(pos[0])
 	posZF64 := f64(pos[1])
 	chunkXYZ := float3{f32(pos[0]), 0, f32(pos[1])}
-	chunkXSimd := #simd[4]f64{posXF64, posXF64, posXF64, posXF64}
-	chunkZSimd := #simd[4]f64{posZF64, posZF64, posZF64, posZF64}
+	chunkXYZI32 := [3]i32{i32(pos[0]), 0, i32(pos[1])}
 
-	for x: f64 = 0.0; x < f64(CUBES_PER_X_DIR); x += 4 {
-		for z: f64 = 0.0; z < f64(CUBES_PER_Z_DIR); z += 1 {
-			worldXPosSimd := chunkXSimd + #simd[4]f64{x, x + 1, x + 2, x + 3}
-			worldZPosSimd := chunkZSimd + #simd[4]f64{z, z, z, z}
+	// chunkXSimd := #simd[4]f64{posXF64, posXF64, posXF64, posXF64}
+	// chunkZSimd := #simd[4]f64{posZF64, posZF64, posZF64, posZF64}
 
-			biomes := get_biome_weights(worldXPosSimd, worldZPosSimd, seed, BIOME_SCALE)
+	for x: i32 = 0; x < CUBES_PER_X_DIR; x += 1 { 	// FIX: +=1, not +=4
+		for z: i32 = 0; z < CUBES_PER_Z_DIR; z += 1 {
+			biome := get_biome_weights(x, z, seed)
+			for yCoord: i32 = MIN_Y; yCoord < MAX_Y; yCoord += 1 {
+				y := yCoord - MIN_Y
+				idx := index_into_point_arrays(x, y, z)
+				worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
+				pointType := procedural_point_type(worldXYZ.x, worldXYZ.y, worldXYZ.z, seed, biome)
+				chunk.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z] =
+					pointType
 
-			surfaceLevelFs: [4]f64
-			surfaceLevelFs[0] = -4
-			surfaceLevelFs[1] = -4
-			surfaceLevelFs[2] = -4
-			surfaceLevelFs[3] = -4
+				if chunk.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z] ==
+				   .Air {
+					continue
+				}
 
-			for i: i64 = 0; i < len(biomes); i += 1 {
-				surfaceLevelF := i64(surfaceLevelFs[i])
-				for yCoord: i64 = MIN_Y; yCoord < surfaceLevelF; yCoord += 1 {
-					y := i64(yCoord) - MIN_Y
-					currX := i64(x) + i
-					currZ := i64(z)
-
-					chunk.points[index_into_point_arrays(currX, y, currZ)] = u16(PointType.Ground)
-
-					coordInChunk := float3{f32(x + f64(i)), f32(y), f32(z)}
-					coordInChunkInt := [3]i64{i64(x) + i, i64(y), i64(z)}
-
-					vertsX := coordInChunkInt.x + cubeVerticesX
-					vertsY := coordInChunkInt.y + cubeVerticesY
-					vertsZ := coordInChunkInt.z + cubeVerticesZ
-
-					existingVertIndicesSimd :=
-						vertsX * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
-						vertsY * VERTS_PER_Z_DIR +
-						vertsZ
-
-					existingVertIndices := simd.to_array(existingVertIndicesSimd)
-
-					for existingVertIdx, i in existingVertIndices {
-						#no_bounds_check {
-							existingVertex := EXISTING_VERTICES_MAPPER[existingVertIdx]
-							if existingVertex == -1 {
-								jitteringVector :=
-									JITTER_POOL[calculate_jitter_idx(currX, y, currZ)]
-								EXISTING_VERTICES_MAPPER[existingVertIdx] = staticVisiblePointsLen
-
-								vertex_offset_x := simd.extract(cubeVerticesX, i)
-								vertex_offset_y := simd.extract(cubeVerticesY, i)
-								vertex_offset_z := simd.extract(cubeVerticesZ, i)
-
-								finalPointCoord := chunkXYZ
-								finalPointCoord.x += f32(coordInChunkInt.x) + f32(vertex_offset_x)
-								finalPointCoord.y +=
-									f32(coordInChunkInt.y) + f32(vertex_offset_y) + f32(MIN_Y)
-								finalPointCoord.z += f32(coordInChunkInt.z) + f32(vertex_offset_z)
-								finalPointCoord += jitteringVector
-
-								staticVisiblePoints[staticVisiblePointsLen] = finalPointCoord
-								staticVisiblePointsLen += 1
-							}
+				// FIX: Add all 8 verts if missing (before indices)
+				for localVert in 0 ..< 8 {
+					offset := cubeVertices[localVert]
+					vertIndex := [3]i32{x, y, z} + offset
+					existingIdx := index_into_point_arrays(vertIndex.x, vertIndex.y, vertIndex.z)
+					if EXISTING_VERTICES_MAPPER[existingIdx] == -1 {
+						coordWithoutJitter := [3]i32 {
+							pos[0] + vertIndex.x,
+							MIN_Y + vertIndex.y,
+							pos[1] + vertIndex.z,
 						}
+						jitteringVector := calculate_jitter(
+							coordWithoutJitter.x,
+							coordWithoutJitter.y,
+							coordWithoutJitter.z,
+							seed,
+						)
+						finalPointCoord :=
+							[3]f32 {
+								f32(coordWithoutJitter.x),
+								f32(coordWithoutJitter.y),
+								f32(coordWithoutJitter.z),
+							} +
+							jitteringVector
+						staticVisiblePoints[staticVisiblePointsLen] = finalPointCoord
+						EXISTING_VERTICES_MAPPER[existingIdx] = staticVisiblePointsLen
+						staticVisiblePointsLen += 1
 					}
+				}
 
-					#no_bounds_check {
-						colorForThisCube := random_color_for_biome(biomes[i])
-						#assert(len(cubeIndices) % 4 == 0)
-
-						for index, idx in cubeIndices {
-							vertIndex := coordInChunkInt + cubeVertices[index]
-							existingIdx :=
-								vertIndex.x * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR +
-								vertIndex.y * VERTS_PER_Z_DIR +
-								vertIndex.z
-
-							staticIndices[staticIndicesLen] = INDEX_TYPE_USED_IN_CHUNKS(
-								EXISTING_VERTICES_MAPPER[existingIdx],
-							)
-							staticIndicesLen += 1
-
-							staticColors[staticColorsLen] = colorForThisCube
-							staticColorsLen += 1
-
-						}
-					}
-
+				colorForThisCube := rand.choice(Random_Colors_Per_Point_Type[pointType][:])
+				for index, idx_ in cubeIndices { 	// index = cubeIndices[idx_]
+					vertIndex := [3]i32{x, y, z} + cubeVertices[index]
+					existingIdx := index_into_point_arrays(vertIndex.x, vertIndex.y, vertIndex.z)
+					existing := EXISTING_VERTICES_MAPPER[existingIdx]
+					assert(existing != -1) // For debugging—should never hit now
+					staticIndices[staticIndicesLen] = INDEX_TYPE_USED_IN_CHUNKS(existing)
+					staticIndicesLen += 1
+					staticColors[staticColorsLen] = colorForThisCube
+					staticColorsLen += 1
 				}
 			}
 		}
 	}
+	assert(staticVisiblePointsLen > 0)
+	assert(staticIndicesLen > 0)
+	assert(staticColorsLen > 0)
+
+
 	chunk.totalPoints = u32(staticVisiblePointsLen)
 	chunk.totalIndices = u32(staticIndicesLen)
 
@@ -318,9 +299,12 @@ chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
 
 
 }
-calculate_jitter_idx :: #force_inline proc(x, y, z: i64) -> u16 {
-	return u16((x + y + z) % i64(max(u16)))
+
+calculate_jitter :: #force_inline proc(x, y, z: i32, seed: u64) -> [3]f32 {
+	return [3]f32{rand.float32(), rand.float32(), rand.float32()}
 }
+
+
 chunks_shift_per_player_movement :: proc(c: ^Camera) {
 	xzOfCurrentCenterChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	xzOfPrevCenterChunk := Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos / CHUNK_SIZE
