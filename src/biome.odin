@@ -5,6 +5,9 @@ import "core:math/noise"
 import "core:simd"
 Biome :: enum {
 	Forest,
+	Mountain,
+	Crater,
+	Wavy,
 }
 when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	PointType :: f32
@@ -81,27 +84,35 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	}
 
 }
+procedural_point_type_noise_result :: proc(x, y, z: i32, seed: u64, biome: Biome) -> f32 {
 
 
-procedural_point_type_noise_result :: proc(x, y, z: i32, seed: u64, w: Biome) -> f32 {
-	HEIGHT_MAP_SCALE :: .02
-	height :=
-		noise.noise_2d(
-			transmute(i64)seed,
-			{f64(x) * HEIGHT_MAP_SCALE, f64(z) * HEIGHT_MAP_SCALE},
-		) *
-		10
-	height = height * 2.0 + 1.0
-	if f32(y) > height do return 0
-
-	noise := noise.noise_3d_improve_xz(
-		transmute(i64)seed,
-		{f64(x) * 0.02, f64(y) * 0.02, f64(z) * 0.02},
+	FBM_SCALE :: .05
+	fbm1 := algorithms.fbm_3d(
+		f64(x) * FBM_SCALE,
+		f64(y) * FBM_SCALE,
+		f64(z) * FBM_SCALE,
+		seed,
+		2,
+		.75,
+		.5,
 	)
-	noise += 1
 
-	assert(noise >= 0 && noise <= 2)
-	return noise
+	fbm2 := algorithms.fbm_3d(
+		(f64(x) + 5.2) * FBM_SCALE,
+		(f64(y) + 1.3) * FBM_SCALE,
+		(f64(z << 2) + 2.6) * FBM_SCALE,
+		seed,
+		2,
+		.5,
+		.3,
+	)
+
+	return noise.noise_2d(transmute(i64)seed, {fbm1, fbm2})
+	// noise += 1
+
+	// assert(noise >= 0 && noise <= 2)
+	// return noise
 }
 when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	procedural_point_type :: proc(x, y, z: i32, seed: u64, w: Biome) -> PointType {
@@ -138,21 +149,18 @@ when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 
 get_biome_weights :: proc(x, z: i32, seed: u64) -> Biome {
-	scale: f64 : 0.002
-	BIOME_OCTAVES :: 2
-	BIOME_LACUNARITY :: .5
-	BIOME_PERSISTENCE :: .2
-	v := algorithms.warped_fbm_2d(
-		f64(x) * scale,
-		f64(z) * scale,
+	HEIGHT_MAP_SCALE :: .02
+
+	worley1 := algorithms.worley_2d(f64(x) * HEIGHT_MAP_SCALE, f64(z) * HEIGHT_MAP_SCALE, seed)
+	worley2 := algorithms.worley_2d(
+		(f64(x) + 2.3) * HEIGHT_MAP_SCALE,
+		(f64(z) + 4.1) * HEIGHT_MAP_SCALE,
 		seed,
-		BIOME_OCTAVES,
-		BIOME_LACUNARITY,
-		BIOME_PERSISTENCE,
 	)
+	v := noise.noise_2d(transmute(i64)seed, {worley1, worley2})
 	for b, i in Biome {
-		lowRange := 1.0 / f64(len(Biome)) * f64(i)
-		highRange := lowRange + 1.0 / f64(len(Biome))
+		lowRange := 1.0 / f32(len(Biome)) * f32(i)
+		highRange := lowRange + 1.0 / f32(len(Biome))
 		if v >= lowRange && v < highRange {
 			return b
 		}

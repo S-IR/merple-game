@@ -192,24 +192,32 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 				worldX := pos[0] + x
 				worldZ := pos[1] + z
 				biome := get_biome_weights(worldX, worldZ, seed)
-				for yCoord: i32 = MIN_Y; yCoord <= MAX_Y; yCoord += 1 {
-					y := yCoord - MIN_Y
-					idx := index_into_point_arrays(x, y, z)
-					worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
-					// pointType := procedural_point_type(
-					// 	worldXYZ.x,
-					// 	worldXYZ.y,
-					// 	worldXYZ.z,
-					// 	seed,
-					// 	biome,
-					// )
-					chunk.points[idx] = procedural_point_type_noise_result(
-						worldXYZ.x,
-						worldXYZ.y,
-						worldXYZ.z,
-						seed,
-						biome,
-					)
+				height := flat_height(f64(worldX + x), f64(worldZ + z), seed)
+				assert(height <= 1 && height >= 0)
+				when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_2D {
+					idx := index_into_point_arrays(x, 0, z)
+					chunk.points[idx] = height
+				} else {
+					for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
+						y := yCoord - MIN_Y
+						idx := index_into_point_arrays(x, y, z)
+						worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
+						// pointType := procedural_point_type(
+						// 	worldXYZ.x,
+						// 	worldXYZ.y,
+						// 	worldXYZ.z,
+						// 	seed,
+						// 	biome,
+						// )
+						chunk.points[idx] = procedural_point_type_noise_result(
+							worldXYZ.x,
+							worldXYZ.y,
+							worldXYZ.z,
+							seed,
+							biome,
+						)
+
+					}
 
 				}
 			}
