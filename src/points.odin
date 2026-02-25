@@ -21,7 +21,80 @@ Point_r: struct {
 //     {0.5, -0.5, -0.5},
 //     {0.5, -0.5, 0.5},
 // }
-
+when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
+	PointType :: f32
+} else {
+	PointType :: enum {
+		Air,
+		YellowDirt,
+		PurpleGround,
+		LightPurpleGround,
+		BlueDiamond,
+		BlackCliff,
+		PinkTrunk,
+		WhiteTreeLeaf,
+		Water,
+	}
+	Random_Colors_Per_Point_Type := [PointType][5][4]f32 {
+		.Air               = {{}, {}, {}, {}, {}},
+		.YellowDirt        = {
+			{159, 112, 75, 1},
+			{154, 107, 70, 1},
+			{157, 110, 73, 1},
+			{153, 106, 69, 1},
+			{155, 108, 71, 1},
+		},
+		.PurpleGround      = {
+			{36, 19, 97, 1},
+			{33, 16, 94, 1},
+			{31, 14, 92, 1},
+			{28, 11, 89, 1},
+			{34, 17, 95, 1},
+		},
+		.LightPurpleGround = {
+			{141, 97, 237, 1},
+			{144, 100, 240, 1},
+			{138, 94, 234, 1},
+			{142, 98, 238, 1},
+			{143, 99, 239, 1},
+		},
+		.BlueDiamond       = {
+			{0, 236, 231, 1},
+			{3, 241, 236, 1},
+			{2, 240, 235, 1},
+			{0, 234, 229, 1},
+			{2, 240, 235, 1},
+		},
+		.BlackCliff        = {
+			{31, 22, 25, 1},
+			{26, 17, 20, 1},
+			{24, 15, 18, 1},
+			{25, 16, 19, 1},
+			{25, 16, 19, 1},
+		},
+		.PinkTrunk         = {
+			{229, 108, 125, 1},
+			{227, 106, 123, 1},
+			{226, 105, 122, 1},
+			{229, 108, 125, 1},
+			{232, 111, 128, 1},
+		},
+		.WhiteTreeLeaf     = {
+			{218, 189, 252, 1},
+			{216, 187, 250, 1},
+			{214, 185, 248, 1},
+			{221, 192, 255, 1},
+			{222, 193, 255, 1},
+		},
+		.Water             = {
+			{68, 131, 129, 1},
+			{68, 131, 129, 1},
+			{63, 126, 124, 1},
+			{69, 132, 130, 1},
+			{68, 131, 129, 1},
+		},
+	}
+}
 BottomFacedIndices := [?]u16{0, 1, 2, 0, 2, 3}
 PipelineData :: struct {
 	descriptorSetLayout: vk.DescriptorSetLayout,

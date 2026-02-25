@@ -23,7 +23,7 @@ float3 :: [3]f32
 float4 :: [4]f32
 
 ENABLE_SPALL :: false && ODIN_DEBUG
-VISUAL_REPRESENTATION_OF_NOISE_FN_RUN :: true && ODIN_DEBUG
+VISUAL_REPRESENTATION_OF_NOISE_FN_RUN :: false && ODIN_DEBUG
 VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_2D :: true && VISUAL_REPRESENTATION_OF_NOISE_FN_RUN
 when ODIN_DEBUG && ENABLE_SPALL {
 	spall_ctx: spall.Context
@@ -188,6 +188,15 @@ main :: proc() {
 
 		mem.copy(cameraPtr, &cameraUbo, size_of(cameraUbo))
 		vma.unmap_memory(vkAllocator, cameraBuffers[vkFrameIndex].alloc)
+
+
+		//TODO. I FORGOT CAMERA HAS F32 AS POSITION AND NOT I32. THAT MIGHT MEAN THAT TRAVELLING FAR TO I32 IS GOING TO CAUSE PROBLEMS
+		biomeWeights := get_biome_weights(i32(camera.pos.x), i32(camera.pos.z), seed)
+		for weight, biome in biomeWeights {
+			str, _ := fmt.enum_value_to_string(biome)
+			fmt.printf("%s : %d ,", str, int(weight))
+		}
+		fmt.println()
 		// raycastPointHit, raycastDidHappen := raycast_get_viewed_point(&camera)
 		// if raycastDidHappen do fmt.println("raycast point:", raycastPointHit)
 

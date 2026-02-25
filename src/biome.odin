@@ -1,89 +1,34 @@
 package main
 import "algorithms"
 import "core:fmt"
+import "core:math"
 import "core:math/noise"
 import "core:simd"
-Biome :: enum {
-	Forest,
-	Mountain,
-	Crater,
-	Wavy,
-}
-when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
-	PointType :: f32
-} else {
-	PointType :: enum {
-		Air,
-		YellowDirt,
-		PurpleGround,
-		LightPurpleGround,
-		BlueDiamond,
-		BlackCliff,
-		PinkTrunk,
-		WhiteTreeLeaf,
-		Water,
-	}
-	Random_Colors_Per_Point_Type := [PointType][5][4]f32 {
-		.Air               = {{}, {}, {}, {}, {}},
-		.YellowDirt        = {
-			{157, 110, 73, 1},
-			{157, 110, 73, 1},
-			{157, 110, 73, 1},
-			{157, 110, 73, 1},
-			{158, 111, 74, 1},
-		},
-		.PurpleGround      = {
-			{33, 16, 94, 1},
-			{33, 16, 94, 1},
-			{31, 14, 92, 1},
-			{31, 14, 92, 1},
-			{31, 14, 92, 1},
-		},
-		.LightPurpleGround = {
-			{141, 97, 237, 1},
-			{141, 97, 237, 1},
-			{142, 98, 238, 1},
-			{141, 97, 237, 1},
-			{142, 98, 238, 1},
-		},
-		.BlueDiamond       = {
-			{1, 239, 234, 1},
-			{0, 237, 232, 1},
-			{0, 238, 233, 1},
-			{0, 237, 232, 1},
-			{0, 237, 232, 1},
-		},
-		.BlackCliff        = {
-			{26, 17, 20, 1},
-			{28, 19, 22, 1},
-			{27, 18, 21, 1},
-			{29, 20, 23, 1},
-			{27, 18, 21, 1},
-		},
-		.PinkTrunk         = {
-			{229, 108, 125, 1},
-			{230, 109, 126, 1},
-			{230, 109, 126, 1},
-			{230, 109, 126, 1},
-			{229, 108, 125, 1},
-		},
-		.WhiteTreeLeaf     = {
-			{220, 191, 254, 1},
-			{217, 188, 251, 1},
-			{218, 189, 252, 1},
-			{218, 189, 252, 1},
-			{218, 189, 252, 1},
-		},
-		.Water             = {
-			{66, 129, 127, 1},
-			{68, 131, 129, 1},
-			{65, 128, 126, 1},
-			{68, 131, 129, 1},
-			{66, 129, 127, 1},
-		},
-	}
 
+MIN_BIOME_WEIGHT_TO_NOT_IGNORE :: 3
+
+Biome :: enum {
+	Crystalbloom, // crystalsong forest
+	Gorglai, // gorground + kun lai summits
+	Arakholm, //deepholm + spirals of arak, giant craters
+	Merplia, //made up by me, wavy hill region with perfectm math zones
+	Wintercrown, // winterspring + icecrown
+	Scholathorn, //stranglethon valley + scholazar basin
+	Adwaron, //dread wastes
+	Etherwind, //netherstorm
 }
+BiomeWeights :: [Biome]u8
+BiomeSpacesPerValues :: [Biome][3]f64 {
+	.Crystalbloom = {.3, .2, .4},
+	.Gorglai      = {1, .1, .6},
+	.Arakholm     = {.7, .2, .1},
+	.Merplia      = {.4, 1, .5},
+	.Wintercrown  = {.7, .1, .6},
+	.Scholathorn  = {.5, .3, .5},
+	.Adwaron      = {.6, .4, .4},
+	.Etherwind    = {.2, .3, 1},
+}
+
 procedural_point_type_noise_result :: proc(x, y, z: i32, seed: u64, biome: Biome) -> f32 {
 
 
@@ -114,58 +59,127 @@ procedural_point_type_noise_result :: proc(x, y, z: i32, seed: u64, biome: Biome
 	// assert(noise >= 0 && noise <= 2)
 	// return noise
 }
+get_biome_selector :: proc(x, y, z: i32, seed: u64) -> f32 {
+	xx := u64(x) + 719 // small offsets avoid (0,0,0) symmetry
+	yy := u64(y) + 425
+	zz := u64(z) + 1337
+	h := xx * 1619 ~ yy * 31337 ~ zz * 6971 ~ seed
+	h = (h ~ (h >> 16)) * 0x85ebca6b
+	h = (h ~ (h >> 13)) * 0xc2b2ae35
+	h ~= h >> 16
+	return f32(h & 0x7FFFFFFF) / 2147483648.0 // [0,1)
+}
+
 when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
-	procedural_point_type :: proc(x, y, z: i32, seed: u64, w: Biome) -> PointType {
-		// if y > 0 || y < 15 do return .Air
-		// return .YellowDirt
-		noise := procedural_point_type_noise_result(x, y, z, seed, w)
-		if noise == 0 do return .Air
-
-		// fmt.print("noise:", noise)
-		// noise = (noise + 0.8) / 1.6
-
-		FOREST_POINTS := [?]PointType {
-			.YellowDirt,
-			.PurpleGround,
-			.LightPurpleGround,
-			.BlueDiamond,
-			.BlackCliff,
-			.PinkTrunk,
-			.WhiteTreeLeaf,
-			.Water,
-		}
-		sliceSize: f32 = 2.0 / f32(len(FOREST_POINTS))
-		for fp, i in FOREST_POINTS {
-			rangeStart: f32 = sliceSize * f32(i)
-			rangeEnd: f32 = rangeStart + sliceSize
-			if noise >= rangeStart && noise <= rangeEnd {
-				return fp
+	procedural_point_type :: proc(weights: BiomeWeights, x, y, z: i32, seed: u64) -> PointType {
+		selector := get_biome_selector(x, y, z, seed)
+		cumulator: f32 = 0
+		for weight, biome in weights {
+			if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
+			prob := f32(weight) / 255.0
+			cumulator += prob
+			if selector < cumulator {
+				return biome_point_type(biome, x, y, z, seed)
 			}
 		}
-		assert(false)
 		return .Air
 	}
 }
 
 
-get_biome_weights :: proc(x, z: i32, seed: u64) -> Biome {
-	HEIGHT_MAP_SCALE :: .02
+get_biome_weights :: proc(x, z: i32, seed: u64) -> (biomeWeights: BiomeWeights) {
+	HEIGHT_MAP_SCALE :: .002
+	ruggedness1 := algorithms.fbm_2d(
+		f64(x) * HEIGHT_MAP_SCALE,
+		f64(z) * HEIGHT_MAP_SCALE,
+		seed,
+		2,
+		.5,
+		.5,
+	)
+	ruggedness2 := algorithms.fbm_2d(
+		(f64(x) + 2.3) * HEIGHT_MAP_SCALE,
+		(f64(z) + 4.1) * HEIGHT_MAP_SCALE,
+		seed,
+		2,
+		.75,
+		.3,
+	)
 
-	worley1 := algorithms.worley_2d(f64(x) * HEIGHT_MAP_SCALE, f64(z) * HEIGHT_MAP_SCALE, seed)
-	worley2 := algorithms.worley_2d(
+	assert(ruggedness1 >= 0 && ruggedness1 <= 1)
+	assert(ruggedness2 >= 0 && ruggedness2 <= 1)
+
+	ruggedness := algorithms.fbm_2d(ruggedness1, ruggedness2, seed, 1, .5, .3)
+	assert(ruggedness >= 0 && ruggedness <= 1)
+
+
+	curvature1 := algorithms.worley_2d(
+		(f64(x) + 10.2) * HEIGHT_MAP_SCALE,
+		(f64(z) + 0.5) * HEIGHT_MAP_SCALE,
+		seed,
+	)
+	curvature2 := algorithms.worley_2d(
 		(f64(x) + 2.3) * HEIGHT_MAP_SCALE,
 		(f64(z) + 4.1) * HEIGHT_MAP_SCALE,
 		seed,
 	)
-	v := noise.noise_2d(transmute(i64)seed, {worley1, worley2})
-	for b, i in Biome {
-		lowRange := 1.0 / f32(len(Biome)) * f32(i)
-		highRange := lowRange + 1.0 / f32(len(Biome))
-		if v >= lowRange && v < highRange {
-			return b
-		}
+
+	assert(curvature1 >= 0 && curvature1 <= 1)
+	assert(curvature2 >= 0 && curvature2 <= 1)
+
+
+	curvature := algorithms.fbm_2d(ruggedness1, curvature2, seed, 1, .3, .5)
+
+	assert(curvature >= 0 && curvature <= 1)
+
+	verticality1 := algorithms.fbm_2d(
+		f64(f64(x) + 2.4) * HEIGHT_MAP_SCALE,
+		f64(f64(z) + 3.1) * HEIGHT_MAP_SCALE,
+		seed,
+		2,
+		.5,
+		.5,
+	)
+	verticality2 := curvature2
+
+	assert(verticality1 >= 0 && verticality1 <= 1)
+	assert(verticality2 >= 0 && verticality2 <= 1)
+
+	verticality := algorithms.worley_2d(verticality1, verticality2, seed)
+	assert(verticality >= 0 && verticality <= 1)
+
+
+	rgv := [3]f64{ruggedness, curvature, verticality}
+	SHARPNESS :: 4.0
+
+	// totalWeight := 0
+	total: f32 = 0
+	weightsF32 := [Biome]f32{}
+	for biomeSpaceValue, biome in BiomeSpacesPerValues {
+		diff := biomeSpaceValue - rgv
+		diff *= diff
+		dist2 := diff[0] + diff[1] + diff[2]
+
+		inv: f32 = 1.0 / (f32(dist2) + 0.0001)
+		w: f32 = inv * inv // SHARPNESS = 2
+		w *= w // SHARPNESS = 4
+		weightsF32[biome] = w
+		total += w
 	}
-	return .Forest
+	assert(total > 0)
+	accum: int = 0
+	for biome in Biome {
+		normalized := weightsF32[biome] / total
+		val := math.clamp(int(normalized * 255), 0, 255)
+		biomeWeights[biome] = u8(val)
+		accum += val
+	}
+	if accum != 255 {
+		biomeWeights[Biome.Crystalbloom] += u8(255 - accum)
+	}
+
+	// biomeWeights /= toatlWeight
+	return biomeWeights
 	// v = (v + 1.0) * 0.5
 
 	// forest := clamp(1.0 - abs(v - 0.2) * 4.0, 0.0, 1.0)

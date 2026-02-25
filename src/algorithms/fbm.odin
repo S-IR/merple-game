@@ -70,3 +70,9 @@ warped_fbm_3d :: proc(x, y, z: f64, seed: u64, octaves: int, lacunarity, gain: f
 	return fbm_3d(x * rx, y * ry, z + 1.6, seed, octaves, lacunarity, gain)
 
 }
+lerp :: proc(a, b, t: f32) -> f32 {
+	return a + (b - a) * t
+}
+lerp_i32 :: proc(a, b: i32, t: f32) -> i32 {
+	return i32(f32(a) + (f32(b) - f32(a)) * t)
+}

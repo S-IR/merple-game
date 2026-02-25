@@ -20,8 +20,8 @@ int2 :: [2]i32
 CHUNK_SIZE :: 16
 CHUNK_STRIDE :: CHUNK_SIZE - 1
 
-MIN_Y :: -32
-MAX_Y :: 31
+MIN_Y :: -128
+MAX_Y :: 127
 CHUNK_HEIGHT :: MAX_Y - MIN_Y
 DEFAULT_SURFACE_LEVEL :: -1
 
@@ -191,8 +191,12 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
 				worldX := pos[0] + x
 				worldZ := pos[1] + z
-				biome := get_biome_weights(worldX, worldZ, seed)
-				height := flat_height(f64(worldX + x), f64(worldZ + z), seed)
+				biomeWeights := get_biome_weights(worldX, worldZ, seed)
+				height: i32 = 0
+				for biome, weight in biomeWeights {
+					if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
+					height += i32(biome_height(biome, x, z, seed) * (f64(weight) / 255.0))
+				}
 				assert(height <= 1 && height >= 0)
 				when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_2D {
 					idx := index_into_point_arrays(x, 0, z)
@@ -207,14 +211,14 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						// 	worldXYZ.y,
 						// 	worldXYZ.z,
 						// 	seed,
-						// 	biome,
+						// 	biomeWeights,
 						// )
 						chunk.points[idx] = procedural_point_type_noise_result(
 							worldXYZ.x,
 							worldXYZ.y,
 							worldXYZ.z,
 							seed,
-							biome,
+							biomeWeights,
 						)
 
 					}
@@ -434,17 +438,27 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
 				worldX := pos[0] + x
 				worldZ := pos[1] + z
-				biome := get_biome_weights(worldX, worldZ, seed)
-				for yCoord: i32 = MIN_Y; yCoord <= MAX_Y; yCoord += 1 {
+				biomeWeights := get_biome_weights(worldX, worldZ, seed)
+				height: i32 = 0
+				for weight, biome in biomeWeights {
+					if weight < 3 do continue
+					// if biome == .Arakholm do fmt.println("biome_height(biome, worldX, worldZ, seed)", biome_height(biome, worldX, worldZ, seed))
+					height += i32(
+						biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
+					)
+				}
+				// assert(height <= 1 && height >= 0)
+
+				for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
 					y := yCoord - MIN_Y
 					idx := index_into_point_arrays(x, y, z)
 					worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
 					pointType := procedural_point_type(
+						biomeWeights,
 						worldXYZ.x,
 						worldXYZ.y,
 						worldXYZ.z,
 						seed,
-						biome,
 					)
 					chunk.points[idx] = pointType
 
@@ -490,8 +504,9 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 							staticVisiblePointsLen += 1
 						}
 					}
-
-					colorForThisCube := rand.choice(Random_Colors_Per_Point_Type[pointType][:])
+					colorForThisCube :=
+						rand.choice(Random_Colors_Per_Point_Type[pointType][:]) / 255
+					// fmt.println("colorForThisCube", colorForThisCube)
 					for index, idx_ in cubeIndices {
 						vertIndex := [3]i32{x, y, z} + cubeVertices[index]
 						existingIdx := index_into_point_arrays(
@@ -569,9 +584,9 @@ calculate_jitter :: proc(x, y, z: i32, seed: u64) -> [3]f32 {
 	h = (h ~ (h >> 13)) * 0x27d4eb2d
 	h = (h ~ (h >> 15)) * 0x85ebca6b
 	h = h ~ (h >> 16)
-	fx := f32((h) & 0xFFFF) / 65535.0 * 0.4 - 0.2
-	fy := f32((h >> 16) & 0xFFFF) / 65535.0 * 0.4 - 0.2
-	fz := f32((h >> 32) & 0xFFFF) / 65535.0 * 0.4 - 0.2
+	fx := f32((h) & 0xFFFF) / 65535.0 - 0.2
+	fy := f32((h >> 16) & 0xFFFF) / 65535.0 - 0.2
+	fz := f32((h >> 32) & 0xFFFF) / 65535.0 - 0.2
 	return {fx, fy, fz}
 }
 
