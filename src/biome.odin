@@ -75,7 +75,12 @@ get_biome_selector :: proc(x, y, z: i32, seed: u64) -> f32 {
 }
 
 when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
-	procedural_point_type :: proc(weights: BiomeWeights, x, y, z: i32, seed: u64) -> PointType {
+	procedural_point_type :: proc(
+		weights: BiomeWeights,
+		x, y, z: i32,
+		topY: i32,
+		seed: u64,
+	) -> PointType {
 		selector := get_biome_selector(x, y, z, seed)
 		cumulator: f32 = 0
 		for weight, biome in weights {
@@ -83,7 +88,7 @@ when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			prob := f32(weight) / 255.0
 			cumulator += prob
 			if selector < cumulator {
-				return biome_point_type(biome, x, y, z, seed)
+				return biome_point_type(biome, x, y, z, topY, seed)
 			}
 		}
 		return .Air

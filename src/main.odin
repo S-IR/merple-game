@@ -191,12 +191,12 @@ main :: proc() {
 
 
 		//TODO. I FORGOT CAMERA HAS F32 AS POSITION AND NOT I32. THAT MIGHT MEAN THAT TRAVELLING FAR TO I32 IS GOING TO CAUSE PROBLEMS
-		biomeWeights := get_biome_weights(i32(camera.pos.x), i32(camera.pos.z), seed)
-		for weight, biome in biomeWeights {
-			str, _ := fmt.enum_value_to_string(biome)
-			fmt.printf("%s : %d ,", str, int(weight))
-		}
-		fmt.println()
+		// biomeWeights := get_biome_weights(i32(camera.pos.x), i32(camera.pos.z), seed)
+		// for weight, biome in biomeWeights {
+		// 	str, _ := fmt.enum_value_to_string(biome)
+		// 	fmt.printf("%s : %d ,", str, int(weight))
+		// }
+		// fmt.println()
 		// raycastPointHit, raycastDidHappen := raycast_get_viewed_point(&camera)
 		// if raycastDidHappen do fmt.println("raycast point:", raycastPointHit)
 

@@ -441,13 +441,12 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 				biomeWeights := get_biome_weights(worldX, worldZ, seed)
 				height: i32 = 0
 				for weight, biome in biomeWeights {
-					if weight < 3 do continue
-					// if biome == .Arakholm do fmt.println("biome_height(biome, worldX, worldZ, seed)", biome_height(biome, worldX, worldZ, seed))
+					if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
 					height += i32(
 						biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
 					)
 				}
-				// assert(height <= 1 && height >= 0)
+				assert(height >= MIN_Y)
 
 				for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
 					y := yCoord - MIN_Y
@@ -458,8 +457,12 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						worldXYZ.x,
 						worldXYZ.y,
 						worldXYZ.z,
+						height,
 						seed,
 					)
+					if (biomeWeights[.Crystalbloom] > 200) && ((height - yCoord) < 4) {
+						fmt.println("point type", pointType)
+					}
 					chunk.points[idx] = pointType
 
 				}
@@ -475,30 +478,30 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						(x != 0 && x != CUBES_PER_X_DIR - 1) &&
 						(z != 0 && z != CUBES_PER_Z_DIR - 1)
 
-					// if isNotBorderBlock {
-					// 	surroundedByBlocks := true
-					// 	neighbourLoop: for dx: i32 = -1; dx <= 1; dx += 1 {
-					// 		for dy: i32 = -1; dy <= 1; dy += 1 {
-					// 			for dz: i32 = -1; dz <= 1; dz += 1 {
-					// 				neighbourX := x + dx
-					// 				neighbourY := math.clamp(y + dy, 0, VERTS_PER_Y_DIR)
-					// 				neighbourZ := z + dz
+					if isNotBorderBlock {
+						surroundedByBlocks := true
+						neighbourLoop: for dx: i32 = -1; dx <= 1; dx += 1 {
+							for dy: i32 = -1; dy <= 1; dy += 1 {
+								for dz: i32 = -1; dz <= 1; dz += 1 {
+									neighbourX := x + dx
+									neighbourY := math.clamp(y + dy, 0, VERTS_PER_Y_DIR)
+									neighbourZ := z + dz
 
 
-					// 				neighbourIndex := index_into_point_arrays(
-					// 					neighbourX,
-					// 					neighbourY,
-					// 					neighbourZ,
-					// 				)
-					// 				if chunk.points[neighbourIndex] == .Air {
-					// 					surroundedByBlocks = false
-					// 					break neighbourLoop
-					// 				}
-					// 			}
-					// 		}
-					// 	}
-					// 	if surroundedByBlocks do continue
-					// }
+									neighbourIndex := index_into_point_arrays(
+										neighbourX,
+										neighbourY,
+										neighbourZ,
+									)
+									if chunk.points[neighbourIndex] == .Air {
+										surroundedByBlocks = false
+										break neighbourLoop
+									}
+								}
+							}
+						}
+						if surroundedByBlocks do continue
+					}
 
 					for localVert in 0 ..< 8 {
 						offset := cubeVertices[localVert]
@@ -744,7 +747,7 @@ chunks_draw :: proc(
 
 			chunk := &Chunks[x][y]
 
-			// if !is_chunk_in_camera_frustrum(chunk.pos, &camera) do continue
+			if !is_chunk_in_camera_frustrum(chunk.pos, &camera) do continue
 			if chunk.totalIndices == 0 do continue
 
 
