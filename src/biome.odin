@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:math"
 import "core:math/noise"
 import "core:simd"
+import "core:slice"
 
 MIN_BIOME_WEIGHT_TO_NOT_IGNORE :: 3
 
@@ -60,14 +61,17 @@ procedural_point_type_noise_result :: proc(x, y, z: i32, seed: u64, biome: Biome
 	// return noise
 }
 get_biome_selector :: proc(x, y, z: i32, seed: u64) -> f32 {
-	xx := u64(x) + 719 // small offsets avoid (0,0,0) symmetry
-	yy := u64(y) + 425
-	zz := u64(z) + 1337
-	h := xx * 1619 ~ yy * 31337 ~ zz * 6971 ~ seed
-	h = (h ~ (h >> 16)) * 0x85ebca6b
-	h = (h ~ (h >> 13)) * 0xc2b2ae35
-	h ~= h >> 16
-	return f32(h & 0x7FFFFFFF) / 2147483648.0 // [0,1)
+	return f32(
+		algorithms.fbm_3d(
+			f64(x) * 0.25,
+			f64(y) * 0.25,
+			f64(z) * 0.25,
+			seed + 0x9E3779B9,
+			2,
+			0.55,
+			0.65,
+		),
+	)
 }
 
 when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
@@ -93,7 +97,7 @@ get_biome_weights :: proc(x, z: i32, seed: u64) -> (biomeWeights: BiomeWeights) 
 		f64(x) * HEIGHT_MAP_SCALE,
 		f64(z) * HEIGHT_MAP_SCALE,
 		seed,
-		2,
+		3,
 		.5,
 		.5,
 	)
@@ -101,7 +105,7 @@ get_biome_weights :: proc(x, z: i32, seed: u64) -> (biomeWeights: BiomeWeights) 
 		(f64(x) + 2.3) * HEIGHT_MAP_SCALE,
 		(f64(z) + 4.1) * HEIGHT_MAP_SCALE,
 		seed,
-		2,
+		3,
 		.75,
 		.3,
 	)
@@ -136,7 +140,7 @@ get_biome_weights :: proc(x, z: i32, seed: u64) -> (biomeWeights: BiomeWeights) 
 		f64(f64(x) + 2.4) * HEIGHT_MAP_SCALE,
 		f64(f64(z) + 3.1) * HEIGHT_MAP_SCALE,
 		seed,
-		2,
+		3,
 		.5,
 		.5,
 	)
@@ -167,18 +171,46 @@ get_biome_weights :: proc(x, z: i32, seed: u64) -> (biomeWeights: BiomeWeights) 
 		total += w
 	}
 	assert(total > 0)
-	accum: int = 0
+	floors := [Biome]int{}
+	fracs := [Biome]f32{}
+	accum := 0
+
 	for biome in Biome {
 		normalized := weightsF32[biome] / total
-		val := math.clamp(int(normalized * 255), 0, 255)
-		biomeWeights[biome] = u8(val)
-		accum += val
-	}
-	if accum != 255 {
-		biomeWeights[Biome.Crystalbloom] += u8(255 - accum)
+		scaled := normalized * 255.0
+
+		floorVal := int(scaled)
+		floors[biome] = floorVal
+		fracs[biome] = scaled - f32(floorVal)
+
+		biomeWeights[biome] = u8(floorVal)
+		accum += floorVal
 	}
 
-	// biomeWeights /= toatlWeight
+	remainder := 255 - accum
+	if remainder > 0 {
+		// Build list of (biome, fractional part) for sorting
+		Entry :: struct {
+			biome: Biome,
+			frac:  f32,
+		}
+		entries := [len(Biome)]Entry{}
+		// defer delete(entries)
+
+		for biome, i in Biome {
+			entries[i] = Entry{biome, fracs[biome]}
+		}
+
+		// Sort descending by fractional part (highest remainder first)
+		slice.sort_by(entries[:], proc(a, b: Entry) -> bool {
+			return a.frac > b.frac
+		})
+
+		// Give the +1 to the top `remainder` biomes
+		for i := 0; i < remainder && i < len(entries); i += 1 {
+			biomeWeights[entries[i].biome] += 1
+		}
+	}
 	return biomeWeights
 	// v = (v + 1.0) * 0.5
 

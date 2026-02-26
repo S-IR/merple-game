@@ -469,9 +469,37 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		for x: i32 = 0; x < CUBES_PER_X_DIR; x += 1 {
 			for z: i32 = 0; z < CUBES_PER_Z_DIR; z += 1 {
 				for y: i32 = 0; y < CUBES_PER_Y_DIR; y += 1 {
-
 					pointType := chunk.points[index_into_point_arrays(x, y, z)]
 					if pointType == .Air do continue
+					isNotBorderBlock :=
+						(x != 0 && x != CUBES_PER_X_DIR - 1) &&
+						(z != 0 && z != CUBES_PER_Z_DIR - 1)
+
+					// if isNotBorderBlock {
+					// 	surroundedByBlocks := true
+					// 	neighbourLoop: for dx: i32 = -1; dx <= 1; dx += 1 {
+					// 		for dy: i32 = -1; dy <= 1; dy += 1 {
+					// 			for dz: i32 = -1; dz <= 1; dz += 1 {
+					// 				neighbourX := x + dx
+					// 				neighbourY := math.clamp(y + dy, 0, VERTS_PER_Y_DIR)
+					// 				neighbourZ := z + dz
+
+
+					// 				neighbourIndex := index_into_point_arrays(
+					// 					neighbourX,
+					// 					neighbourY,
+					// 					neighbourZ,
+					// 				)
+					// 				if chunk.points[neighbourIndex] == .Air {
+					// 					surroundedByBlocks = false
+					// 					break neighbourLoop
+					// 				}
+					// 			}
+					// 		}
+					// 	}
+					// 	if surroundedByBlocks do continue
+					// }
+
 					for localVert in 0 ..< 8 {
 						offset := cubeVertices[localVert]
 						vertIndex := [3]i32{x, y, z} + offset

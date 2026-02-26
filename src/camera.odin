@@ -12,7 +12,7 @@ CAMERA_MOVEMENT :: enum {
 DEFAULT_YAW :: -90.0
 DEFAULT_PITCH :: 0
 
-DEFAULT_SPEED :: 10
+DEFAULT_SPEED :: 50
 DEFAULT_FOV :: 45.0
 DEFAULT_SENSITIVITY: f32 = 0.2
 
@@ -20,15 +20,15 @@ DEFAULT_SENSITIVITY: f32 = 0.2
 WORLD_UP: float3 : {0, 1, 0}
 
 Camera :: struct {
-	pos:               float3,
-	front:             float3,
-	up:                float3,
-	right:             float3,
-	yaw:               f32,
-	pitch:             f32,
-	movement_speed:    f32,
-	mouse_sensitivity: f32,
-	fov:               f32,
+	pos:              float3,
+	front:            float3,
+	up:               float3,
+	right:            float3,
+	yaw:              f32,
+	pitch:            f32,
+	movementSpeed:    f32,
+	mouseSensitivity: f32,
+	fov:              f32,
 }
 
 Camera_new :: proc(
@@ -38,13 +38,13 @@ Camera_new :: proc(
 	fov: f32 = DEFAULT_FOV,
 ) -> Camera {
 	c := Camera {
-		front             = front,
-		movement_speed    = DEFAULT_SPEED,
-		mouse_sensitivity = DEFAULT_SENSITIVITY,
-		pos               = pos,
-		yaw               = DEFAULT_YAW,
-		pitch             = DEFAULT_PITCH,
-		fov               = fov,
+		front            = front,
+		movementSpeed    = DEFAULT_SPEED,
+		mouseSensitivity = DEFAULT_SENSITIVITY,
+		pos              = pos,
+		yaw              = DEFAULT_YAW,
+		pitch            = DEFAULT_PITCH,
+		fov              = fov,
 	}
 	Camera_rotate(&c)
 	return c
@@ -78,12 +78,12 @@ Camera_process_keyboard_movement :: proc(c: ^Camera) {
 
 	if linalg.length(movementVector) <= 0 do return
 
-	delta := linalg.normalize(movementVector) * c.movement_speed * f32(dt)
+	delta := linalg.normalize(movementVector) * c.movementSpeed * f32(dt)
 	c.pos += delta
 }
 Camera_process_mouse_movement :: proc(c: ^Camera, received_xOffset, received_yOffset: f32) {
-	xOffset := received_xOffset * c.mouse_sensitivity
-	yOffset := -received_yOffset * c.mouse_sensitivity
+	xOffset := received_xOffset * c.mouseSensitivity
+	yOffset := -received_yOffset * c.mouseSensitivity
 
 	c.yaw += xOffset
 	c.pitch += yOffset
