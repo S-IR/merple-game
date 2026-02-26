@@ -312,7 +312,7 @@ vulkan_init :: proc() {
 
 	{
 
-		ensure(sdl.Vulkan_CreateSurface(window, vkInstance, nil, &vkSurface))
+		sdl_ensure(sdl.Vulkan_CreateSurface(window, vkInstance, nil, &vkSurface))
 		surfaceCaps: vk.SurfaceCapabilitiesKHR
 		vk_chk(
 			vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(vkPhysicalDevice, vkSurface, &surfaceCaps),

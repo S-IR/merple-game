@@ -87,7 +87,7 @@ main :: proc() {
 
 	}
 	sdl_ensure(sdl.Init({.VIDEO, .EVENTS}))
-	window = sdl.CreateWindow("Merple", i32(screenWidth), i32(screenHeight), {.RESIZABLE})
+	window = sdl.CreateWindow("Merple", i32(screenWidth), i32(screenHeight), {.RESIZABLE, .VULKAN})
 	sdl_ensure(window != nil)
 	defer sdl.DestroyWindow(window)
 	sdl.SetLogPriorities(.WARN)
