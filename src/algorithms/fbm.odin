@@ -14,17 +14,21 @@ fbm_2d :: proc(x, y: f64, seed: u64, octaves: int, lacunarity, gain: f64) -> (re
 	sum: f64 = 0.0
 	amplitude: f64 = 1.0
 	frequency: f64 = 1.0
+	maxValPossible := 1.0
 	for i in 0 ..< octaves {
-		sum +=
-			amplitude *
-			f64((1 + noise.noise_2d(transmute(i64)seed, {x * frequency, y * frequency})) / 2)
+		sum += amplitude * f64(noise.noise_2d(transmute(i64)seed, {x * frequency, y * frequency}))
+
+		maxValPossible += amplitude
 		frequency *= lacunarity
 		amplitude *= gain
 	}
-
 	// maxAmpl := fbm_max_amplitude(octaves, gain)
-	res = math.clamp(sum, 0, 1)
+	sum /= maxValPossible
+	sum = (sum + 1) / 2
+
+	res = sum
 	assert(res >= 0 && res <= 1)
+
 	return res
 }
 ridged_fbm_2d :: proc(x, y: f64, seed: u64, octaves: int, lacunarity, gain: f64) -> (res: f64) {
@@ -34,20 +38,25 @@ ridged_fbm_2d :: proc(x, y: f64, seed: u64, octaves: int, lacunarity, gain: f64)
 	amplitude: f64 = 1.0
 	frequency: f64 = 1.0
 	weight: f64 = 1.0
+	maxValPossible := 1.0
 
 	for i in 0 ..< octaves {
-		n := f64((1 + noise.noise_2d(transmute(i64)seed, {x * frequency, y * frequency})) / 2)
+		n := f64(noise.noise_2d(transmute(i64)seed, {x * frequency, y * frequency}))
+
 		signal := OFFSET - math.abs(n)
 
 		sum += signal * amplitude
 
+		maxValPossible += 2.0 * amplitude
 		frequency *= lacunarity
 		amplitude *= gain
 	}
 
-	res = math.clamp(sum, 0, 1)
+	sum /= maxValPossible
 
+	res = sum
 	assert(res >= 0 && res <= 1)
+
 	return res
 }
 
@@ -55,6 +64,8 @@ fbm_3d :: proc(x, y, z: f64, seed: u64, octaves: int, lacunarity, gain: f64) -> 
 	sum: f64 = 0.0
 	amplitude: f64 = 1.0
 	frequency: f64 = 1.0
+	maxValPossible := 1.0
+
 	for i in 0 ..< octaves {
 		sum +=
 			amplitude *
@@ -66,10 +77,17 @@ fbm_3d :: proc(x, y, z: f64, seed: u64, octaves: int, lacunarity, gain: f64) -> 
 					1) /
 				2,
 			)
+		maxValPossible += amplitude * 1.0
+
 		frequency *= lacunarity
 		amplitude *= gain
 	}
-	res = math.clamp(sum, 0, 1)
+	sum /= maxValPossible
+	sum = (sum + 1) / 2
+
+
+	res = sum
+	assert(res >= 0 && res <= 1)
 	return res
 }
 

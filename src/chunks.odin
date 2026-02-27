@@ -281,8 +281,10 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						assert(existing != -1) // For debugging—should never hit now
 						staticIndices[staticIndicesLen] = INDEX_TYPE_USED_IN_CHUNKS(existing)
 						staticIndicesLen += 1
-						staticColors[staticColorsLen] = colorForThisCube
-						staticColorsLen += 1
+						if idx_ % 3 == 0 {
+							staticColors[staticColorsLen] = colorForThisCube
+							staticColorsLen += 1
+						}
 					}
 				}
 			}
@@ -460,20 +462,35 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						height,
 						seed,
 					)
-					if (biomeWeights[.Crystalbloom] > 200) && ((height - yCoord) < 4) {
-						fmt.println("point type", pointType)
-					}
 					chunk.points[idx] = pointType
 
 				}
 			}
 		}
 
+		// for x: i32 = 0; x < CUBES_PER_X_DIR; x += 1 {
+		// 	for z: i32 = 0; z < CUBES_PER_Z_DIR; z += 1 {
+		// 		foundAir := false
+		// 		for y: i32 = 0; y < CUBES_PER_Y_DIR; y += 1 {
+		// 			pointType := chunk.points[index_into_point_arrays(x, y, z)]
+		// 			if pointType == .Air && !foundAir {
+		// 				foundAir = true
+		// 				for yInvers := y - 1;
+		// 				    yInvers >= y - CRYSTALBLOOM_TOP_COVER_LAYER_SIZE;
+		// 				    yInvers -= 1 {
+		// 					pointType2 := chunk.points[index_into_point_arrays(x, yInvers, z)]
+		// 					fmt.println("pointType2", pointType2)
+		// 				}
+		// 			}
+
+		// 		}}}
+		// fmt.println("chunk points", chunk.points)
 		for x: i32 = 0; x < CUBES_PER_X_DIR; x += 1 {
 			for z: i32 = 0; z < CUBES_PER_Z_DIR; z += 1 {
 				for y: i32 = 0; y < CUBES_PER_Y_DIR; y += 1 {
 					pointType := chunk.points[index_into_point_arrays(x, y, z)]
 					if pointType == .Air do continue
+
 					isNotBorderBlock :=
 						(x != 0 && x != CUBES_PER_X_DIR - 1) &&
 						(z != 0 && z != CUBES_PER_Z_DIR - 1)
@@ -535,10 +552,10 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 							staticVisiblePointsLen += 1
 						}
 					}
-					colorForThisCube :=
-						rand.choice(Random_Colors_Per_Point_Type[pointType][:]) / 255
+
+					colorForThisCube := rand.choice(Random_Colors_Per_Point_Type[pointType][:])
 					// fmt.println("colorForThisCube", colorForThisCube)
-					for index, idx_ in cubeIndices {
+					for index, idxOfIndexInCubeIndices in cubeIndices {
 						vertIndex := [3]i32{x, y, z} + cubeVertices[index]
 						existingIdx := index_into_point_arrays(
 							vertIndex.x,
@@ -549,8 +566,11 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						assert(existing != -1)
 						staticIndices[staticIndicesLen] = INDEX_TYPE_USED_IN_CHUNKS(existing)
 						staticIndicesLen += 1
-						staticColors[staticColorsLen] = colorForThisCube
-						staticColorsLen += 1
+						if idxOfIndexInCubeIndices % 3 == 0 {
+							staticColors[staticColorsLen] = colorForThisCube
+							staticColorsLen += 1
+
+						}
 					}
 				}
 			}
