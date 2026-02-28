@@ -3,15 +3,12 @@ import vma "../modules/vma"
 import "core:container/small_array"
 import "core:fmt"
 import "core:log"
-import "core:mem"
 import os "core:os/os2"
-import "core:path/filepath"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
 vkInstance: vk.Instance
 vkPhysicalDevice: vk.PhysicalDevice
-vkPhysicalDeviceUUID: [16]u8
 
 vkGraphicsQueueFamilyIndex: u32 = 0
 vkQueue: vk.Queue
@@ -58,15 +55,6 @@ CameraUBO :: struct {
 }
 cameraBuffers := [MAX_FRAMES_IN_FLIGHT]VkBufferPoolElem{}
 
-CachedVulkanInfo :: struct {
-	deviceUUID:               [16]u8,
-	graphicsQueueFamilyIndex: u32,
-	depthFormat:              vk.Format,
-	swapchainFormat:          vk.Format,
-	swapchainColorSpace:      vk.ColorSpaceKHR,
-}
-
-VK_CACHE_FILE :: "./cache/vulkan_init.cache"
 vulkan_init :: proc() {
 	sdl.Vulkan_LoadLibrary(nil)
 
@@ -102,48 +90,17 @@ vulkan_init :: proc() {
 
 	}
 	ensure(vkInstance != nil)
-	foundCache := false
-	cachedInfo: CachedVulkanInfo
 
-	cacheData, cacheOk := os.read_entire_file(VK_CACHE_FILE, context.temp_allocator)
-
-	deviceCount: u32
-	vk_chk(vk.EnumeratePhysicalDevices(vkInstance, &deviceCount, nil))
-	if deviceCount == 0 {log.fatal("No Vulkan devices")}
-	devices := make([]vk.PhysicalDevice, deviceCount, context.temp_allocator)
-	vk_chk(vk.EnumeratePhysicalDevices(vkInstance, &deviceCount, raw_data(devices)))
-
-
-	if cacheOk == os.General_Error.None && len(cacheData) == size_of(CachedVulkanInfo) {
-		cachedInfo = (transmute(^CachedVulkanInfo)raw_data(cacheData))^
-
-
-		for d in devices {
-			idProps := vk.PhysicalDeviceIDProperties {
-				sType = .PHYSICAL_DEVICE_ID_PROPERTIES,
-			}
-			props2 := vk.PhysicalDeviceProperties2 {
-				sType = .PHYSICAL_DEVICE_PROPERTIES_2,
-				pNext = &idProps,
-			}
-			vk.GetPhysicalDeviceProperties2(d, &props2)
-
-			if idProps.deviceUUID == cachedInfo.deviceUUID {
-				vkPhysicalDevice = d
-				vkPhysicalDeviceUUID = cachedInfo.deviceUUID
-				vkGraphicsQueueFamilyIndex = cachedInfo.graphicsQueueFamilyIndex
-				vkDepthFormat = cachedInfo.depthFormat
-				vkSwapchainImageFormat = cachedInfo.swapchainFormat
-				vkSwapchainColorSpace = cachedInfo.swapchainColorSpace
-				foundCache = true
-				break
-			}
+	{
+		deviceCount: u32 = 0
+		vk_chk(vk.EnumeratePhysicalDevices(vkInstance, &deviceCount, nil))
+		devices := make([]vk.PhysicalDevice, deviceCount, context.temp_allocator)
+		if deviceCount == 0 {
+			fmt.eprintln("cannot find any device supporting our given Vulkan requirements")
+			os.exit(1)
 		}
-	}
 
-
-	if !foundCache {
-
+		vk_chk(vk.EnumeratePhysicalDevices(vkInstance, &deviceCount, raw_data(devices)))
 
 		deviceProperties := vk.PhysicalDeviceProperties2 {
 			sType = .PHYSICAL_DEVICE_PROPERTIES_2,
@@ -154,17 +111,8 @@ vulkan_init :: proc() {
 		for d in devices {
 			score: i32 = 0
 
-			idProps := vk.PhysicalDeviceIDProperties {
-				sType = .PHYSICAL_DEVICE_ID_PROPERTIES,
-			}
-			deviceProps := vk.PhysicalDeviceProperties2 {
-				sType = .PHYSICAL_DEVICE_PROPERTIES_2,
-				pNext = &idProps,
-			}
-			vk.GetPhysicalDeviceProperties2(d, &deviceProps)
-
-			props := deviceProps.properties
-
+			props: vk.PhysicalDeviceProperties
+			vk.GetPhysicalDeviceProperties(d, &props)
 			if props.deviceType == .DISCRETE_GPU {
 				score += 1000_000_000
 			}
@@ -181,9 +129,9 @@ vulkan_init :: proc() {
 			score += i32(totalVRAM / (1024 * 1024))
 
 			if score > bestScore {
+
 				bestScore = score
 				bestDevice = d
-				vkPhysicalDeviceUUID = idProps.deviceUUID
 			}
 		}
 
@@ -192,52 +140,27 @@ vulkan_init :: proc() {
 			os.exit(1)
 		}
 		vkPhysicalDevice = bestDevice
-		depthFormatList := [?]vk.Format{.D32_SFLOAT, .D24_UNORM_S8_UINT}
-
-		for format in depthFormatList {
-			formatProperties := [?]vk.FormatProperties2{{sType = .FORMAT_PROPERTIES_2}}
-			vk.GetPhysicalDeviceFormatProperties2(
-				vkPhysicalDevice,
-				format,
-				raw_data(formatProperties[:]),
-			)
-
-			if .DEPTH_STENCIL_ATTACHMENT in
-			   formatProperties[0].formatProperties.optimalTilingFeatures {
-				vkDepthFormat = format
-				break
-			}
-		}
 		// vk.GetPhysicalDeviceProperties2(vkPhysicalDevice, &deviceProperties)
 	}
 	ensure(vkPhysicalDevice != {})
-	ensure(vkDepthFormat != .UNDEFINED)
-
 	// fmt.printfln("Selected device: %s", deviceProperties.properties.deviceName)
 
 	{
-		if !foundCache {
-			queueFamilyCount: u32 = 0
-			vk.GetPhysicalDeviceQueueFamilyProperties(vkPhysicalDevice, &queueFamilyCount, nil)
-			queueFamilies := make(
-				[]vk.QueueFamilyProperties,
-				queueFamilyCount,
-				context.temp_allocator,
-			)
+		queueFamilyCount: u32 = 0
+		vk.GetPhysicalDeviceQueueFamilyProperties(vkPhysicalDevice, &queueFamilyCount, nil)
+		queueFamilies := make([]vk.QueueFamilyProperties, queueFamilyCount, context.temp_allocator)
 
-			vk.GetPhysicalDeviceQueueFamilyProperties(
-				vkPhysicalDevice,
-				&queueFamilyCount,
-				raw_data(queueFamilies),
-			)
-			for queueFamily, i in queueFamilies {
-				if (.GRAPHICS in queueFamily.queueFlags) {
-					vkGraphicsQueueFamilyIndex = u32(i)
-					break
-				}
+		vk.GetPhysicalDeviceQueueFamilyProperties(
+			vkPhysicalDevice,
+			&queueFamilyCount,
+			raw_data(queueFamilies),
+		)
+		for queueFamily, i in queueFamilies {
+			if (.GRAPHICS in queueFamily.queueFlags) {
+				vkGraphicsQueueFamilyIndex = u32(i)
+				break
 			}
 		}
-
 
 		ensure(
 			sdl.Vulkan_GetPresentationSupport(
@@ -312,77 +235,45 @@ vulkan_init :: proc() {
 
 	{
 
-		sdl_ensure(sdl.Vulkan_CreateSurface(window, vkInstance, nil, &vkSurface))
+		ensure(sdl.Vulkan_CreateSurface(window, vkInstance, nil, &vkSurface))
 		surfaceCaps: vk.SurfaceCapabilitiesKHR
 		vk_chk(
 			vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(vkPhysicalDevice, vkSurface, &surfaceCaps),
 		)
 
 
-		if foundCache {
-			formatCount: u32
-			vk.GetPhysicalDeviceSurfaceFormatsKHR(vkPhysicalDevice, vkSurface, &formatCount, nil)
-			formats := make([]vk.SurfaceFormatKHR, formatCount, context.temp_allocator)
-			vk.GetPhysicalDeviceSurfaceFormatsKHR(
-				vkPhysicalDevice,
-				vkSurface,
-				&formatCount,
-				raw_data(formats),
-			)
-
-			valid := false
-			for f in formats {
-				if f.format == vkSwapchainImageFormat && f.colorSpace == vkSwapchainColorSpace {
-					valid = true
-					break
-				}
-			}
-			if !valid {
-				log.warn("Cached swapchain format no longer supported – falling back")
-				foundCache = false
-			}
-		}
-
-
-		if !foundCache {
-			formatCount: u32 = 0
-			vk_chk(
-				vk.GetPhysicalDeviceSurfaceFormatsKHR(
-					vkPhysicalDevice,
-					vkSurface,
-					&formatCount,
-					nil,
-				),
-			)
-			surfaceFormats := make([]vk.SurfaceFormatKHR, formatCount, context.temp_allocator)
+		formatCount: u32 = 0
+		vk_chk(
+			vk.GetPhysicalDeviceSurfaceFormatsKHR(vkPhysicalDevice, vkSurface, &formatCount, nil),
+		)
+		surfaceFormats := make([]vk.SurfaceFormatKHR, formatCount, context.temp_allocator)
+		vk_chk(
 			vk.GetPhysicalDeviceSurfaceFormatsKHR(
 				vkPhysicalDevice,
 				vkSurface,
 				&formatCount,
 				raw_data(surfaceFormats),
-			)
+			),
+		)
 
-			preferredFormat := surfaceFormats[0]
-			for f in surfaceFormats {
-				if (f.format == .A2B10G10R10_UNORM_PACK32 ||
-					   f.format == .A2B10G10R10_SINT_PACK32) &&
-				   f.colorSpace == .HDR10_ST2084_EXT {
-					preferredFormat = f
-					break
-				}
-				if f.format == .B10G11R11_UFLOAT_PACK32 || f.format == .R16G16B16A16_SFLOAT {
-					preferredFormat = f
-					break
-				}
-				if f.format == .B8G8R8A8_SRGB && f.colorSpace == .SRGB_NONLINEAR {
-					preferredFormat = f
-				}
+		preferredFormat := surfaceFormats[0]
+		for f in surfaceFormats {
+			if (f.format == .A2B10G10R10_UNORM_PACK32 || f.format == .A2B10G10R10_SINT_PACK32) &&
+			   f.colorSpace == .HDR10_ST2084_EXT {
+				preferredFormat = f
+				break
 			}
-
-			vkSwapchainImageFormat = preferredFormat.format
-			vkSwapchainColorSpace = preferredFormat.colorSpace
+			if f.format == .B10G11R11_UFLOAT_PACK32 || f.format == .R16G16B16A16_SFLOAT {
+				preferredFormat = f
+				break
+			}
+			if f.format == .B8G8R8A8_SRGB && f.colorSpace == .SRGB_NONLINEAR {
+				preferredFormat = f
+			}
 		}
 
+		vkSwapchainImageFormat = preferredFormat.format
+		vkSwapchainColorSpace = preferredFormat.colorSpace
 		ensure(vkSwapchainImageFormat != .UNDEFINED)
 
 		vk_chk(
@@ -393,7 +284,7 @@ vulkan_init :: proc() {
 					surface = vkSurface,
 					minImageCount = surfaceCaps.minImageCount,
 					imageFormat = vkSwapchainImageFormat,
-					imageColorSpace = vkSwapchainColorSpace,
+					imageColorSpace = preferredFormat.colorSpace,
 					imageExtent = {
 						width = surfaceCaps.currentExtent.width,
 						height = surfaceCaps.currentExtent.height,
@@ -438,7 +329,24 @@ vulkan_init :: proc() {
 
 
 	{
+		depthFormatList := [?]vk.Format{.D32_SFLOAT, .D24_UNORM_S8_UINT}
 
+		for format in depthFormatList {
+			formatProperties := [?]vk.FormatProperties2{{sType = .FORMAT_PROPERTIES_2}}
+			vk.GetPhysicalDeviceFormatProperties2(
+				vkPhysicalDevice,
+				format,
+				raw_data(formatProperties[:]),
+			)
+
+			if .DEPTH_STENCIL_ATTACHMENT in
+			   formatProperties[0].formatProperties.optimalTilingFeatures {
+				vkDepthFormat = format
+				break
+			}
+		}
+
+		ensure(vkDepthFormat != .UNDEFINED)
 
 		vk_chk(
 			vma.create_image(
@@ -485,28 +393,7 @@ vulkan_init :: proc() {
 	ensure(vkDepthImageView != {})
 	ensure(vkDepthImage != {})
 
-	if !foundCache {
 
-		info := CachedVulkanInfo {
-			deviceUUID               = vkPhysicalDeviceUUID,
-			graphicsQueueFamilyIndex = vkGraphicsQueueFamilyIndex,
-			depthFormat              = vkDepthFormat,
-			swapchainFormat          = vkSwapchainImageFormat,
-			swapchainColorSpace      = vkSwapchainColorSpace,
-		}
-
-		dir := filepath.dir(VK_CACHE_FILE)
-		if dir != "." && dir != "" {
-			if err := os.mkdir_all(dir, 0o755); err != os.General_Error.None {
-				log.errorf("Failed to create cache dir %q: %v", dir, err)
-			}
-		}
-
-		data := transmute([size_of(CachedVulkanInfo)]u8)info
-		if err := os.write_entire_file(VK_CACHE_FILE, data[:]); err != os.General_Error.None {
-			log.errorf("Failed to write Vulkan cache: %v", err)
-		}
-	}
 	// for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
 	// 	vk_chk(
 	// 		vma.create_buffer(
@@ -822,12 +709,12 @@ vk_chk_swapchain :: proc(r: vk.Result) {
 create_shader_module :: proc(device: vk.Device, code: []byte) -> vk.ShaderModule {
 	assert(len(code) % 4 == 0, "SPIR-V bytecode size must be multiple of 4 bytes")
 
-	code_u32 := transmute([]u32)code
+	code_u32 := cast(^u32)raw_data(code)
 
 	ci := vk.ShaderModuleCreateInfo {
 		sType    = .SHADER_MODULE_CREATE_INFO,
 		codeSize = len(code),
-		pCode    = raw_data(code_u32),
+		pCode    = code_u32,
 	}
 
 	shader_module: vk.ShaderModule

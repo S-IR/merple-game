@@ -61,7 +61,7 @@ compile_shader :: proc(path, dir, ext: string, stage: enum {
 	stageAbbreviated := stage == .vertex ? "vert" : "frag"
 
 	define := strings.to_upper(stageString)
-	when ODIN_DEBUG do debugLine :: "-G"
+	when ODIN_DEBUG do debugLine :: "-gVS"
 
 
 	os.make_directory_all(dir)

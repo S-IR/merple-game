@@ -1,4 +1,5 @@
 package main
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
@@ -17,7 +18,7 @@ DEFAULT_FOV :: 45.0
 DEFAULT_SENSITIVITY: f32 = 0.2
 
 
-WORLD_UP: float3 : {0, 1, 0}
+WORLD_UP: float3 : {0, -1, 0}
 
 Camera :: struct {
 	pos:              float3,
@@ -37,15 +38,18 @@ Camera_new :: proc(
 	up: float3 = {0.0, 1.0, 0.0},
 	fov: f32 = DEFAULT_FOV,
 ) -> Camera {
+	f := linalg.normalize(front)
+
 	c := Camera {
-		front            = front,
+		pos              = pos,
+		front            = f,
+		yaw              = math.atan2(f.z, f.x) / linalg.RAD_PER_DEG,
+		pitch            = math.asin(f.y) / linalg.RAD_PER_DEG,
 		movementSpeed    = DEFAULT_SPEED,
 		mouseSensitivity = DEFAULT_SENSITIVITY,
-		pos              = pos,
-		yaw              = DEFAULT_YAW,
-		pitch            = DEFAULT_PITCH,
 		fov              = fov,
 	}
+
 	Camera_rotate(&c)
 	return c
 }
@@ -83,7 +87,7 @@ Camera_process_keyboard_movement :: proc(c: ^Camera) {
 }
 Camera_process_mouse_movement :: proc(c: ^Camera, received_xOffset, received_yOffset: f32) {
 	xOffset := received_xOffset * c.mouseSensitivity
-	yOffset := -received_yOffset * c.mouseSensitivity
+	yOffset := received_yOffset * c.mouseSensitivity
 
 	c.yaw += xOffset
 	c.pitch += yOffset
@@ -93,15 +97,21 @@ Camera_process_mouse_movement :: proc(c: ^Camera, received_xOffset, received_yOf
 }
 
 Camera_view_proj :: proc(c: ^Camera) -> (view, proj: matrix[4, 4]f32) {
-	view = linalg.matrix4_look_at_f32(c.pos, c.pos + c.front, c.up)
+	fmt.println("c.front", c.front)
+	fmt.println("c.up", c.up)
+	fmt.println("c.right", c.right)
+	fmt.println("c.pos", c.pos)
+
+	view = linalg.matrix4_look_at_f32(c.pos, c.pos + c.front, c.up, true)
 
 	proj = linalg.matrix4_perspective_f32(
 		c.fov,
 		f32(screenWidth) / f32(screenHeight),
 		f32(near_plane),
 		f32(far_plane),
+		true,
 	)
-	proj[1][1] *= -1
+	// proj[1][1] *= -1
 
 	return view, proj
 
@@ -123,7 +133,7 @@ Camera_rotate :: proc(c: ^Camera) {
 	c.front.y = math.sin(c.pitch * linalg.RAD_PER_DEG)
 	c.front.z = math.sin(c.yaw * linalg.RAD_PER_DEG) * math.cos(c.pitch * linalg.RAD_PER_DEG)
 	c.front = linalg.normalize(c.front)
-	c.right = linalg.normalize(linalg.cross(c.front, WORLD_UP))
+	c.right = linalg.normalize(linalg.cross(WORLD_UP, c.front))
 	c.up = linalg.normalize(linalg.cross(c.right, c.front))
 }
 

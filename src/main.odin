@@ -87,7 +87,12 @@ main :: proc() {
 
 	}
 	sdl_ensure(sdl.Init({.VIDEO, .EVENTS}))
-	window = sdl.CreateWindow("Merple", i32(screenWidth), i32(screenHeight), {.RESIZABLE, .VULKAN})
+	window = sdl.CreateWindow(
+		"Illuver",
+		i32(screenWidth),
+		i32(screenHeight),
+		{.RESIZABLE, .VULKAN},
+	)
 	sdl_ensure(window != nil)
 	defer sdl.DestroyWindow(window)
 	sdl.SetLogPriorities(.WARN)
@@ -118,7 +123,9 @@ main :: proc() {
 	rand.reset(seed)
 	middleOfChunksInNormalCoords := f32((CHUNKS_PER_DIRECTION / 2)) * CHUNK_SIZE + CHUNK_SIZE / 2
 	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
-	camera = Camera_new(pos = middleOfMiddleChunkPos)
+	// camera = Camera_new(pos = middleOfMiddleChunkPos)
+	camera = Camera_new(pos = {0, 0, -2}, front = {0, 0, 1})
+
 	chunks_init(&camera)
 	defer chunks_release()
 
