@@ -18,7 +18,7 @@ DEFAULT_FOV :: 45.0
 DEFAULT_SENSITIVITY: f32 = 0.2
 
 
-WORLD_UP: float3 : {0, -1, 0}
+WORLD_UP: float3 : {0, 1, 0}
 
 Camera :: struct {
 	pos:              float3,
@@ -83,11 +83,12 @@ Camera_process_keyboard_movement :: proc(c: ^Camera) {
 	if linalg.length(movementVector) <= 0 do return
 
 	delta := linalg.normalize(movementVector) * c.movementSpeed * f32(dt)
+	fmt.println("movementVector", movementVector)
 	c.pos += delta
 }
 Camera_process_mouse_movement :: proc(c: ^Camera, received_xOffset, received_yOffset: f32) {
 	xOffset := received_xOffset * c.mouseSensitivity
-	yOffset := received_yOffset * c.mouseSensitivity
+	yOffset := -received_yOffset * c.mouseSensitivity
 
 	c.yaw += xOffset
 	c.pitch += yOffset
@@ -133,7 +134,7 @@ Camera_rotate :: proc(c: ^Camera) {
 	c.front.y = math.sin(c.pitch * linalg.RAD_PER_DEG)
 	c.front.z = math.sin(c.yaw * linalg.RAD_PER_DEG) * math.cos(c.pitch * linalg.RAD_PER_DEG)
 	c.front = linalg.normalize(c.front)
-	c.right = linalg.normalize(linalg.cross(WORLD_UP, c.front))
+	c.right = linalg.normalize(linalg.cross(c.front, WORLD_UP))
 	c.up = linalg.normalize(linalg.cross(c.right, c.front))
 }
 

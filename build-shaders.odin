@@ -2,7 +2,7 @@ package build
 
 import "core:fmt"
 import "core:log"
-import os "core:os/os2"
+import os "core:os"
 import "core:path/filepath"
 import "core:strings"
 
@@ -10,14 +10,14 @@ SPIRV :: true
 PRINT_COMMAND :: true
 
 main :: proc() {
-	inputDir := filepath.join({"src", "glsl"})
-	outputDir := filepath.join({"./build", "shader-binaries"})
+	inputDir, _ := filepath.join({"src", "glsl"}, context.temp_allocator)
+	outputDir, _ := filepath.join({"./build", "shader-binaries"}, context.temp_allocator)
 
 	cwd, err := os.get_executable_directory(context.temp_allocator)
 	if err != nil do log.panicf("error getting cwd %s", os.error_string(err))
 
-	inputDir = filepath.join({cwd, inputDir})
-	outputDir = filepath.join({cwd, outputDir})
+	inputDir, _ = filepath.join({cwd, inputDir}, context.temp_allocator)
+	outputDir, _ = filepath.join({cwd, outputDir}, context.temp_allocator)
 
 	if !os.exists(outputDir) {
 		if err := os.make_directory_all(outputDir); err != nil {
@@ -42,7 +42,10 @@ main :: proc() {
 		}
 
 		dirOfRelativePath := filepath.dir(relPath)
-		actualOutputPath := filepath.join({outputDir, dirOfRelativePath})
+		actualOutputPath, _ := filepath.join(
+			{outputDir, dirOfRelativePath},
+			context.temp_allocator,
+		)
 
 		if SPIRV {
 			compile_shader(file.fullpath, actualOutputPath, "spv", .vertex)
@@ -68,14 +71,18 @@ compile_shader :: proc(path, dir, ext: string, stage: enum {
 	cmd := make([dynamic]string)
 	append(&cmd, "glslangValidator")
 	when ODIN_DEBUG do append(&cmd, debugLine)
-	append(&cmd, "-S")
-	append(&cmd, stageAbbreviated)
-	append(&cmd, "--target-env")
-	append(&cmd, "vulkan1.3")
-	append(&cmd, fmt.tprintf("-D%s", define))
-	append(&cmd, "-o")
-	append(&cmd, filepath.join({dir, strings.join({name, stageString, ext}, ".")}))
-	append(&cmd, path)
+	_, _ = append_elem(&cmd, "-S")
+	_, _ = append_elem(&cmd, stageAbbreviated)
+	_, _ = append_elem(&cmd, "--target-env")
+	_, _ = append_elem(&cmd, "vulkan1.3")
+	_, _ = append_elem(&cmd, fmt.tprintf("-D%s", define))
+	_, _ = append_elem(&cmd, "-o")
+	outputPath, _ := filepath.join(
+		{dir, strings.join({name, stageString, ext}, ".")},
+		context.temp_allocator,
+	)
+	_, _ = append_elem(&cmd, outputPath)
+	_, _ = append_elem(&cmd, path)
 	exec(cmd[:])
 }
 

@@ -14,7 +14,6 @@ void main() {
     vec4 viewVector = view * vec4(inPosition, 1.0);
     vec4 projVector = proj * viewVector;
     gl_Position = projVector;
-    // projVector.y *= -1;
     colorIndex = gl_VertexIndex / 3;
 }
 #endif

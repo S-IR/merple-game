@@ -297,9 +297,11 @@ main :: proc() {
 			1,
 			&vk.Viewport {
 				width = f32(screenWidth),
-				height = f32(screenHeight),
+				height = -f32(screenHeight),
 				minDepth = 0,
 				maxDepth = 1,
+				y = f32(screenHeight),
+				x = 0,
 			},
 		)
 		vk.CmdSetScissor(

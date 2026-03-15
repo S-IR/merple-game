@@ -448,91 +448,51 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		isCrystalblooomArr := [VERTS_PER_X_DIR * VERTS_PER_Z_DIR]bool{}
 		BIOME_THRESHOLD :: 20
 		heightMap := [VERTS_PER_X_DIR * VERTS_PER_Z_DIR]i32{}
-		// for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 { 	// FIX: +=1, not +=4
-		// 	for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
-		// 		worldX := pos[0] + x
-		// 		worldZ := pos[1] + z
-		// 		biomeWeights := get_biome_weights(worldX, worldZ, seed)
-		// 		height: i32 = 0
-		// 		for weight, biome in biomeWeights {
-		// 			if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
-		// 			height += i32(
-		// 				biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
-		// 			)
-		// 			height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
-		// 		}
-		// 		assert(height >= MIN_Y)
-		// 		isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] =
-		// 			biomeWeights[.Crystalbloom] > BIOME_THRESHOLD
-		// 		heightMap[x * VERTS_PER_Z_DIR + z] = height
-
-		// 		for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
-		// 			y := yCoord - MIN_Y
-		// 			idx := index_into_point_arrays(x, y, z)
-		// 			worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
-		// 			pointType: PointType
-		// 			if biomeWeights[.Crystalbloom] > BIOME_THRESHOLD &&
-		// 			   ((height - yCoord) < CRYSTALBLOOM_TOP_COVER_LAYER_SIZE) {
-		// 				pointType = .LightPurpleGround
-		// 			} else {
-		// 				// pointType = procedural_point_type(
-		// 				// 	biomeWeights,
-		// 				// 	worldXYZ.x,
-		// 				// 	worldXYZ.y,
-		// 				// 	worldXYZ.z,
-		// 				// 	height,
-		// 				// 	seed,
-		// 				// )
-
-		// 				pointType = .YellowDirt
-		// 			}
-		// 			chunk.points[idx] = pointType
-
-		// 		}
-		// 	}
-		// }
-
-
-		for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 {
+		for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 { 	// FIX: +=1, not +=4
 			for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
+				worldX := pos[0] + x
+				worldZ := pos[1] + z
+				biomeWeights := get_biome_weights(worldX, worldZ, seed)
+				height: i32 = 0
+				for weight, biome in biomeWeights {
+					if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
+					height += i32(
+						biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
+					)
+					height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
+				}
+				assert(height >= MIN_Y)
+				isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] =
+					biomeWeights[.Crystalbloom] > BIOME_THRESHOLD
+				heightMap[x * VERTS_PER_Z_DIR + z] = height
 
-				for yCoord: i32 = MIN_Y; yCoord <= MAX_Y; yCoord += 1 {
-
+				for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
 					y := yCoord - MIN_Y
-					if !((x == 0 || x == 1) &&
-						   (z == 0 || z == 1) &&
-						   (yCoord == 0 || yCoord == 1)) {
-						continue
-					}
 					idx := index_into_point_arrays(x, y, z)
 					worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
-					// pointType := procedural_point_type(
-					// 	worldXYZ.x,
-					// 	worldXYZ.y,
-					// 	worldXYZ.z,
-					// 	seed,
-					// 	biomeWeights,
-					// )
-					chunk.points[idx] = .YellowDirt
+					pointType: PointType
+					if biomeWeights[.Crystalbloom] > BIOME_THRESHOLD &&
+					   ((height - yCoord) < CRYSTALBLOOM_TOP_COVER_LAYER_SIZE) {
+						pointType = .LightPurpleGround
+					} else {
+						// pointType = procedural_point_type(
+						// 	biomeWeights,
+						// 	worldXYZ.x,
+						// 	worldXYZ.y,
+						// 	worldXYZ.z,
+						// 	height,
+						// 	seed,
+						// )
+
+						pointType = .YellowDirt
+					}
+					chunk.points[idx] = pointType
 
 				}
-
 			}
 		}
 
 
-		// for x: i32 = 0; x < CUBES_PER_X_DIR; x += 1 {
-		// 	for z: i32 = 0; z < CUBES_PER_Z_DIR; z += 1 {
-		// 		if !isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] do continue
-		// 		foundAir := false
-		// 		topCheckY := heightMap[x * VERTS_PER_Z_DIR + z]
-		// 		bottomCheckY := topCheckY - CRYSTALBLOOM_TOP_COVER_LAYER_SIZE
-		// 		for yCoord: i32 = topCheckY; yCoord > bottomCheckY; yCoord -= 1 {
-		// 			y := yCoord - MIN_Y
-
-		// 		}
-		// 	}
-		// }
 		for x: i32 = 0; x < VERTS_PER_X_DIR - 1; x += 1 {
 			for z: i32 = 0; z < VERTS_PER_Z_DIR - 1; z += 1 {
 				isCrystalBloom := isCrystalblooomArr[x * VERTS_PER_Z_DIR + z]
@@ -622,6 +582,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 					}
 					if marchingCubeIndex != 255 do continue
+					// fmt.println("staticVisiblePoints", staticVisiblePoints)
 					assert(marchingCubeIndex < 256)
 					indices := POINTS_TO_TRIANGLES_CONVERTER[marchingCubeIndex]
 					for i := 0; i < 36; i += 3 {
@@ -667,24 +628,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						thirdVulkanIndices := EXISTING_VERTICES_MAPPER[thirdRealIndex]
 						staticIndices[staticIndicesLen + 2] = u32(thirdVulkanIndices)
 						staticIndicesLen += 3
-						color := [4]f32{0, 0, 0, 1}
-						if i < 6 {
-							color = {0, 0, 0, 1}
-						} else if i < 12 {
-							color = {1, 0, 0, 1}
 
-						} else if i < 18 {
-							color = {0, 1, 0, 1}
-
-						} else if i < 24 {
-							color = {0, 0, 1, 1}
-
-						} else if i < 30 {
-							color = {1, 1, 0, 1}
-
-						} else if i < 36 {
-							color = {1, 1, 1, 1}
-						}
 						staticColors[staticColorsLen] = rand.choice(
 							Random_Colors_Per_Point_Type[pointType][:],
 						)
@@ -888,7 +832,7 @@ chunks_draw :: proc(
 		for y in 0 ..< len(Chunks[0]) {
 
 			chunk := &Chunks[x][y]
-			if chunk.pos != {0, 0} do continue
+			// if chunk.pos != {0, 0} do continue
 			// if !is_chunk_in_camera_frustrum(chunk.pos, &camera) do continue
 			if chunk.totalIndices == 0 do continue
 
