@@ -66,7 +66,7 @@ vulkan_init :: proc() {
 	{
 		appInfo := vk.ApplicationInfo {
 			sType            = .APPLICATION_INFO,
-			pApplicationName = "How to Vulkan",
+			pApplicationName = "Illuver",
 			apiVersion       = vk.API_VERSION_1_3,
 		}
 		instanceExtensionCount: u32
@@ -198,6 +198,7 @@ vulkan_init :: proc() {
 		enabledVk10Features := vk.PhysicalDeviceFeatures {
 			samplerAnisotropy = true,
 			shaderInt64       = true,
+			geometryShader    = true,
 		}
 		deviceCI := vk.DeviceCreateInfo {
 			sType                   = .DEVICE_CREATE_INFO,

@@ -22,7 +22,7 @@ float2 :: [2]f32
 float3 :: [3]f32
 float4 :: [4]f32
 
-ENABLE_SPALL :: false && ODIN_DEBUG
+ENABLE_SPALL :: true && ODIN_DEBUG
 VISUAL_REPRESENTATION_OF_NOISE_FN_RUN :: false && ODIN_DEBUG
 VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_2D :: true && VISUAL_REPRESENTATION_OF_NOISE_FN_RUN
 when ODIN_DEBUG && ENABLE_SPALL {
@@ -31,21 +31,21 @@ when ODIN_DEBUG && ENABLE_SPALL {
 	spall_buffer: spall.Buffer
 
 
-	@(instrumentation_enter)
-	spall_enter :: proc "contextless" (
-		proc_address, call_site_return_address: rawptr,
-		loc: runtime.Source_Code_Location,
-	) {
-		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
-	}
+	// @(instrumentation_enter)
+	// spall_enter :: proc "contextless" (
+	// 	proc_address, call_site_return_address: rawptr,
+	// 	loc: runtime.Source_Code_Location,
+	// ) {
+	// 	spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+	// }
 
-	@(instrumentation_exit)
-	spall_exit :: proc "contextless" (
-		proc_address, call_site_return_address: rawptr,
-		loc: runtime.Source_Code_Location,
-	) {
-		spall._buffer_end(&spall_ctx, &spall_buffer)
-	}
+	// @(instrumentation_exit)
+	// spall_exit :: proc "contextless" (
+	// 	proc_address, call_site_return_address: rawptr,
+	// 	loc: runtime.Source_Code_Location,
+	// ) {
+	// 	spall._buffer_end(&spall_ctx, &spall_buffer)
+	// }
 
 }
 Scale_3d: f32 = 0.02
