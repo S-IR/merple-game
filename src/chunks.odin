@@ -448,19 +448,19 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		isCrystalblooomArr := [VERTS_PER_X_DIR * VERTS_PER_Z_DIR]bool{}
 		BIOME_THRESHOLD :: 20
 		heightMap := [VERTS_PER_X_DIR * VERTS_PER_Z_DIR]i32{}
-		for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 { 	// FIX: +=1, not +=4
+		for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 {
 			for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
 				worldX := pos[0] + x
 				worldZ := pos[1] + z
 				biomeWeights := get_biome_weights(worldX, worldZ, seed)
 				height: i32 = 0
-				for weight, biome in biomeWeights {
-					if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
-					height += i32(
-						biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
-					)
-					height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
-				}
+				// for weight, biome in biomeWeights {
+				// 	if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
+				// 	height += i32(
+				// 		biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
+				// 	)
+				// 	height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
+				// }
 				assert(height >= MIN_Y)
 				isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] =
 					biomeWeights[.Crystalbloom] > BIOME_THRESHOLD
@@ -471,20 +471,26 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 					idx := index_into_point_arrays(x, y, z)
 					worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
 					pointType: PointType
-					if biomeWeights[.Crystalbloom] > BIOME_THRESHOLD &&
-					   ((height - yCoord) < CRYSTALBLOOM_TOP_COVER_LAYER_SIZE) {
-						pointType = .LightPurpleGround
-					} else {
-						// pointType = procedural_point_type(
-						// 	biomeWeights,
-						// 	worldXYZ.x,
-						// 	worldXYZ.y,
-						// 	worldXYZ.z,
-						// 	height,
-						// 	seed,
-						// )
+					// if isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] &&
+					//    ((height - yCoord) < CRYSTALBLOOM_TOP_COVER_LAYER_SIZE) {
+					// 	pointType = .LightPurpleGround
+					// } else {
+					// 	// pointType = procedural_point_type(
+					// 	// 	biomeWeights,
+					// 	// 	worldXYZ.x,
+					// 	// 	worldXYZ.y,
+					// 	// 	worldXYZ.z,
+					// 	// 	height,
+					// 	// 	seed,
+					// 	// )
 
+					// 	pointType = .YellowDirt
+					// }
+					if worldXYZ.y < -5 {
 						pointType = .YellowDirt
+					} else {
+						pointType = .LightPurpleGround
+
 					}
 					chunk.points[idx] = pointType
 
@@ -503,6 +509,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 					pointType := chunk.points[index_into_point_arrays(x, y, z)]
 					if pointType == .Air do continue
+					// if pointType == .YellowDirt do continue
 
 					yCoord := y + MIN_Y
 					// if isCrystalBloom && ((height - yCoord) < CRYSTALBLOOM_TOP_COVER_LAYER_SIZE) {
@@ -543,6 +550,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 					marchingCubeIndex: uint = 0
 					pointIndex := [3]i32{x, y, z}
+
 					for localVert: uint = 0; localVert < 8; localVert += 1 {
 						offset := cubeVertices[localVert]
 						vertIndexVector := pointIndex + offset
@@ -553,9 +561,9 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 							existingVulkanIndex := EXISTING_VERTICES_MAPPER[vertIndex]
 							if existingVulkanIndex == -1 {
 								coordWithoutJitter := [3]i32 {
-									pos[0] + vertIndexVector.x,
-									MIN_Y + vertIndexVector.y,
-									pos[1] + vertIndexVector.z,
+									pos[0] + x + offset.x,
+									yCoord + offset.y,
+									pos[1] + z + offset.z,
 								}
 								// jitteringVector := calculate_jitter(
 								// 	coordWithoutJitter.x,
@@ -568,8 +576,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 									f32(coordWithoutJitter.y),
 									f32(coordWithoutJitter.z),
 								}
-								if chunk.pos == {0, 0} {
-								}
+
 								staticVisiblePoints[staticVisiblePointsLen] = finalPointCoord
 								EXISTING_VERTICES_MAPPER[vertIndex] = staticVisiblePointsLen
 								assert(
@@ -582,6 +589,8 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 					}
 					if marchingCubeIndex != 255 do continue
+
+
 					// fmt.println("staticVisiblePoints", staticVisiblePoints)
 					assert(marchingCubeIndex < 256)
 					indices := POINTS_TO_TRIANGLES_CONVERTER[marchingCubeIndex]
@@ -665,8 +674,6 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 				staticVisiblePointsLen * size_of(staticVisiblePoints[0]),
 			)
 			vma.unmap_memory(vkAllocator, chunk.buffers.pointsBuffer[i].alloc)
-
-			index := chunk.buffers.indices[i]
 
 
 			indexBufferPtr: rawptr

@@ -1,5 +1,4 @@
 package main
-import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import sdl "vendor:sdl3"
@@ -83,7 +82,7 @@ Camera_process_keyboard_movement :: proc(c: ^Camera) {
 	if linalg.length(movementVector) <= 0 do return
 
 	delta := linalg.normalize(movementVector) * c.movementSpeed * f32(dt)
-	fmt.println("movementVector", movementVector)
+	// fmt.println("movementVector", movementVector)
 	c.pos += delta
 }
 Camera_process_mouse_movement :: proc(c: ^Camera, received_xOffset, received_yOffset: f32) {
@@ -98,10 +97,10 @@ Camera_process_mouse_movement :: proc(c: ^Camera, received_xOffset, received_yOf
 }
 
 Camera_view_proj :: proc(c: ^Camera) -> (view, proj: matrix[4, 4]f32) {
-	fmt.println("c.front", c.front)
-	fmt.println("c.up", c.up)
-	fmt.println("c.right", c.right)
-	fmt.println("c.pos", c.pos)
+	// fmt.println("c.front", c.front)
+	// fmt.println("c.up", c.up)
+	// fmt.println("c.right", c.right)
+	// fmt.println("c.pos", c.pos)
 
 	view = linalg.matrix4_look_at_f32(c.pos, c.pos + c.front, c.up, true)
 
