@@ -1,4 +1,5 @@
 package main
+import "../modules/tracy"
 import "../modules/vma"
 import "base:runtime"
 import "core:c"
@@ -12,7 +13,6 @@ import "core:time"
 import sdl "vendor:sdl3"
 import vk "vendor:vulkan"
 
-
 sdl_ensure :: proc(cond: bool, message: string = "") {
 	msg := fmt.tprintf("%s:%s\n", message, sdl.GetError())
 	ensure(cond, msg)
@@ -25,6 +25,7 @@ float4 :: [4]f32
 ENABLE_SPALL :: true && ODIN_DEBUG
 VISUAL_REPRESENTATION_OF_NOISE_FN_RUN :: false && ODIN_DEBUG
 VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_2D :: true && VISUAL_REPRESENTATION_OF_NOISE_FN_RUN
+
 when ODIN_DEBUG && ENABLE_SPALL {
 	spall_ctx: spall.Context
 	@(thread_local)
@@ -48,11 +49,14 @@ when ODIN_DEBUG && ENABLE_SPALL {
 	// }
 
 }
-Scale_3d: f32 = 0.02
-Octaves: int = 1
-Persistence: f32 = 0.25
-Lacunarity: f64 = 3
+TRACY_ENABLE :: true
+
+
 main :: proc() {
+
+	when TRACY_ENABLE {
+		tracy.SetThreadName("main")
+	}
 	when ODIN_DEBUG {
 		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&track, context.allocator)
@@ -132,7 +136,8 @@ main :: proc() {
 	free_all(context.temp_allocator)
 	defer vk.DeviceWaitIdle(vkDevice)
 	for !quit {
-
+		tracy.FrameMark()
+		tracy.Plot("Test", f64(time.now()._nsec))
 		defer free_all(context.temp_allocator)
 		defer {
 			frameEnd := time.now()

@@ -1,4 +1,5 @@
 package main
+import "../modules/tracy"
 import "../modules/vma"
 import "algorithms"
 import "core:container/small_array"
@@ -78,13 +79,13 @@ chunks_init :: proc(c: ^Camera) {
 	ChunkAtTheCenter = Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos
 }
 
+VERT_STRIDE_X :: VERTS_PER_Y_DIR * VERTS_PER_Z_DIR
+VERT_STRIDE_Y :: VERTS_PER_Z_DIR
+index_into_point_arrays_scalars :: #force_inline proc "contextless" (x, y, z: i32) -> i32 {
 
-index_into_point_arrays_scalars :: #force_inline proc(x, y, z: i32) -> i32 {
-	VERT_STRIDE_X :: VERTS_PER_Y_DIR * VERTS_PER_Z_DIR
-	VERT_STRIDE_Y :: VERTS_PER_Z_DIR
 	return x * VERT_STRIDE_X + y * VERT_STRIDE_Y + z
 }
-index_into_point_arrays_vector :: #force_inline proc(v: [3]i32) -> i32 {
+index_into_point_arrays_vector :: #force_inline proc "contextless" (v: [3]i32) -> i32 {
 	VERT_STRIDE_X :: VERTS_PER_Y_DIR * VERTS_PER_Z_DIR
 	VERT_STRIDE_Y :: VERTS_PER_Z_DIR
 	return v.x * VERT_STRIDE_X + v.y * VERT_STRIDE_Y + v.z
@@ -352,58 +353,63 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	}
 } else {
 	chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
+		tracy.Zone()
+
 		chunk := &Chunks[xIdx][zIdx]
-		for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
-			if chunk.buffers.pointsBuffer[i].alloc != {} do continue
-			assert(chunk.buffers.indices[i].buffer == {})
-			assert(chunk.buffers.colors[i].buffer == {})
+		{
+			tracy.Zone()
+			for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+				if chunk.buffers.pointsBuffer[i].buffer != {} do continue
+				assert(chunk.buffers.indices[i].buffer == {})
+				assert(chunk.buffers.colors[i].buffer == {})
 
-			vk_chk(
-				vma.create_buffer(
-					vkAllocator,
-					{
-						sType = .BUFFER_CREATE_INFO,
-						size = vk.DeviceSize(MAX_POINTS * size_of([3]f32)),
-						usage = {.VERTEX_BUFFER},
-					},
-					{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
-					&chunk.buffers.pointsBuffer[i].buffer,
-					&chunk.buffers.pointsBuffer[i].alloc,
-					nil,
-				),
-			)
-			vk_chk(
-				vma.create_buffer(
-					vkAllocator,
-					{
-						sType = .BUFFER_CREATE_INFO,
-						size = vk.DeviceSize(MAX_INDICES * size_of(INDEX_TYPE_USED_IN_CHUNKS)),
-						usage = {.INDEX_BUFFER},
-					},
-					{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
-					&chunk.buffers.indices[i].buffer,
-					&chunk.buffers.indices[i].alloc,
-					nil,
-				),
-			)
+				vk_chk(
+					vma.create_buffer(
+						vkAllocator,
+						{
+							sType = .BUFFER_CREATE_INFO,
+							size = vk.DeviceSize(MAX_POINTS * size_of([3]f32)),
+							usage = {.VERTEX_BUFFER},
+						},
+						{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
+						&chunk.buffers.pointsBuffer[i].buffer,
+						&chunk.buffers.pointsBuffer[i].alloc,
+						nil,
+					),
+				)
+				vk_chk(
+					vma.create_buffer(
+						vkAllocator,
+						{
+							sType = .BUFFER_CREATE_INFO,
+							size = vk.DeviceSize(MAX_INDICES * size_of(INDEX_TYPE_USED_IN_CHUNKS)),
+							usage = {.INDEX_BUFFER},
+						},
+						{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
+						&chunk.buffers.indices[i].buffer,
+						&chunk.buffers.indices[i].alloc,
+						nil,
+					),
+				)
 
-			vk_chk(
-				vma.create_buffer(
-					vkAllocator,
-					{
-						sType = .BUFFER_CREATE_INFO,
-						size = vk.DeviceSize(MAX_COLORS * size_of([4]f32)),
-						usage = {.STORAGE_BUFFER},
-					},
-					{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
-					&chunk.buffers.colors[i].buffer,
-					&chunk.buffers.colors[i].alloc,
-					nil,
-				),
-			)
+				vk_chk(
+					vma.create_buffer(
+						vkAllocator,
+						{
+							sType = .BUFFER_CREATE_INFO,
+							size = vk.DeviceSize(MAX_COLORS * size_of([4]f32)),
+							usage = {.STORAGE_BUFFER},
+						},
+						{flags = {.Host_Access_Sequential_Write, .Mapped}, usage = .Auto},
+						&chunk.buffers.colors[i].buffer,
+						&chunk.buffers.colors[i].alloc,
+						nil,
+					),
+				)
+			}
 		}
 
-
+		allocZoneCtx := tracy.ZoneBegin(true, tracy.TRACY_CALLSTACK)
 		if chunk.alloc == {} {
 			chunk.alloc = virtual.arena_allocator(&chunk.arena)
 		} else {
@@ -434,8 +440,8 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			allocator = context.temp_allocator,
 		)
 		for &v in EXISTING_VERTICES_MAPPER do v = -1
-
 		chunk.pos = pos
+		tracy.ZoneEnd(allocZoneCtx)
 
 		posXF64 := f64(pos[0])
 		posZF64 := f64(pos[1])
@@ -446,200 +452,265 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		// chunkZSimd := #simd[4]f64{posZF64, posZF64, posZF64, posZF64}
 
 		// isCrystalblooomArr := [VERTS_PER_X_DIR * VERTS_PER_Z_DIR]bool{}
-		BIOME_THRESHOLD :: 20
-		heightMap := [VERTS_PER_X_DIR * VERTS_PER_Z_DIR]i32{}
-		for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 {
-			for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
-				worldX := pos[0] + x
-				worldZ := pos[1] + z
-				biomeWeights := get_biome_weights(worldX, worldZ, seed)
-				height: i32 = 0
-				for weight, biome in biomeWeights {
-					if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
-					height += i32(
-						biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
-					)
-					height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
-				}
-				assert(height >= MIN_Y)
-				// isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] =
-				// 	biomeWeights[.Crystalbloom] > BIOME_THRESHOLD
-				heightMap[x * VERTS_PER_Z_DIR + z] = height
+		heightMap := make(
+			[dynamic]i32,
+			len = VERTS_PER_X_DIR * VERTS_PER_Z_DIR,
+			allocator = context.temp_allocator,
+		)
 
-				for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
-					y := yCoord - MIN_Y
-					idx := index_into_point_arrays(x, y, z)
-					worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
-					pointType := procedural_point_type(
-						biomeWeights,
-						worldXYZ.x,
-						worldXYZ.y,
-						worldXYZ.z,
-						height,
-						seed,
-					)
+		{
+			tracy.Zone()
+			BIOME_THRESHOLD :: 20
+			for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 {
+				for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
+					worldX := pos[0] + x
+					worldZ := pos[1] + z
+					biomeWeights := get_biome_weights(worldX, worldZ, seed)
+					height: i32 = 0
+					for weight, biome in biomeWeights {
+						if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
+						height += i32(
+							biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
+						)
+						height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
+					}
+					assert(height >= MIN_Y)
+					// isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] =
+					// 	biomeWeights[.Crystalbloom] > BIOME_THRESHOLD
+					heightMap[x * VERTS_PER_Z_DIR + z] = height
 
-					chunk.points[idx] = pointType
+					for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
+						y := yCoord - MIN_Y
+						idx := index_into_point_arrays(x, y, z)
+						worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
+						pointType := procedural_point_type(
+							biomeWeights,
+							worldXYZ.x,
+							worldXYZ.y,
+							worldXYZ.z,
+							height,
+							seed,
+						)
 
+						chunk.points[idx] = pointType
+
+					}
 				}
 			}
+
 		}
 
-
-		for x: i32 = 0; x < VERTS_PER_X_DIR - 1; x += 1 {
-			for z: i32 = 0; z < VERTS_PER_Z_DIR - 1; z += 1 {
-				// isCrystalBloom := isCrystalblooomArr[x * VERTS_PER_Z_DIR + z]
-				height := heightMap[x * VERTS_PER_Z_DIR + z]
-				for yCoord: i32 = MIN_Y; yCoord < height; yCoord += 1 {
-					y := yCoord - MIN_Y
-
-					#no_bounds_check pointType := chunk.points[index_into_point_arrays(x, y, z)]
-					if pointType == .Air do continue
-					// if pointType == .YellowDirt do continue
-
-					// if isCrystalBloom && ((height - yCoord) < CRYSTALBLOOM_TOP_COVER_LAYER_SIZE) {
-					// 	assert(
-					// 		chunk.points[index_into_point_arrays(x, y, z)] == .LightPurpleGround,
-					// 	)
-					// }
+		{
+			tracy.Zone()
 
 
-					// isNotBorderBlock :=
-					// 	(x != 0 && x != CUBES_PER_X_DIR - 1) &&
-					// 	(z != 0 && z != CUBES_PER_Z_DIR - 1)
+			airSimd := #simd[8]u16 {
+				u16(PointType.Air),
+				u16(PointType.Air),
+				u16(PointType.Air),
+				u16(PointType.Air),
+				u16(PointType.Air),
+				u16(PointType.Air),
+				u16(PointType.Air),
+				u16(PointType.Air),
+			}
 
-					// if isNotBorderBlock {
-					// 	surroundedByBlocks := true
-					// 	neighbourLoop: for dx: i32 = -1; dx <= 1; dx += 1 {
-					// 		for dy: i32 = -1; dy <= 1; dy += 1 {
-					// 			for dz: i32 = -1; dz <= 1; dz += 1 {
-					// 				neighbourX := x + dx
-					// 				neighbourY := math.clamp(y + dy, 0, VERTS_PER_Y_DIR)
-					// 				neighbourZ := z + dz
+			points := &chunk.points
+			mapper := &EXISTING_VERTICES_MAPPER
+
+			for x: i32 = 0; x < VERTS_PER_X_DIR - 1; x += 1 {
+				worldX := pos[0] + x
+				isEdgeX := x == 0 || x == VERTS_PER_X_DIR - 2
+				for z: i32 = 0; z < VERTS_PER_Z_DIR - 1; z += 1 {
+
+					isEdgeZ := z == 0 || z == VERTS_PER_Z_DIR - 2
+					worldZ := pos[1] + z
+					#no_bounds_check height := heightMap[x * VERTS_PER_Z_DIR + z]
 
 
-					// 				neighbourIndex := index_into_point_arrays(
-					// 					neighbourX,
-					// 					neighbourY,
-					// 					neighbourZ,
-					// 				)
-					// 				if chunk.points[neighbourIndex] == .Air {
-					// 					surroundedByBlocks = false
-					// 					break neighbourLoop
-					// 				}
-					// 			}
-					// 		}
-					// 	}
-					// 	if surroundedByBlocks do continue
-					// }
+					for y: i32 = 0; y < height - MIN_Y; y += 1 {
+						baseIndex := x * VERT_STRIDE_X + y * VERT_STRIDE_Y + z
+						#no_bounds_check pointType := points[baseIndex]
+						if pointType == .Air do continue
 
-					marchingCubeIndex: uint = 0
-					pointIndex := [3]i32{x, y, z}
-					validCorners := 0
+						isEdgeY := y == 0 || y == height - MIN_Y - 1
+						isEdge := isEdgeX || isEdgeY || isEdgeZ
+						yCoord := y + MIN_Y
 
-					for localVert: uint = 0; localVert < 8; localVert += 1 {
-						offset := cubeVertices[localVert]
-						vertIndexVector := pointIndex + offset
-						vertIndex := index_into_point_arrays(vertIndexVector)
-						pointAtOffset := chunk.points[vertIndex]
-						if pointAtOffset == pointType {
-							validCorners += 1
-							marchingCubeIndex += 1 << localVert
-							#no_bounds_check existingVulkanIndex :=
-								EXISTING_VERTICES_MAPPER[vertIndex]
-							if existingVulkanIndex == -1 {
-								coordWithoutJitter := [3]i32 {
-									pos[0] + x + offset.x,
-									yCoord + offset.y,
-									pos[1] + z + offset.z,
+						pointTypeSimd := #simd[8]u16 {
+							u16(pointType),
+							u16(pointType),
+							u16(pointType),
+							u16(pointType),
+							u16(pointType),
+							u16(pointType),
+							u16(pointType),
+							u16(pointType),
+						}
+						if !isEdge {
+							isSurrounded := true
+							for p in pointsSimdNeighbors {
+								neighbourEdge := baseIndex + p
+								neighbour: #simd[8]u16 = {
+									auto_cast points[simd.extract(neighbourEdge, 0)],
+									auto_cast points[simd.extract(neighbourEdge, 1)],
+									auto_cast points[simd.extract(neighbourEdge, 2)],
+									auto_cast points[simd.extract(neighbourEdge, 3)],
+									auto_cast points[simd.extract(neighbourEdge, 4)],
+									auto_cast points[simd.extract(neighbourEdge, 5)],
+									auto_cast points[simd.extract(neighbourEdge, 6)],
+									auto_cast points[simd.extract(neighbourEdge, 7)],
 								}
-								// jitteringVector := calculate_jitter(
-								// 	coordWithoutJitter.x,
-								// 	coordWithoutJitter.y,
-								// 	coordWithoutJitter.z,
-								// 	seed,
-								// )
+								eqMask := simd.lanes_eq(neighbour, airSimd)
+								anyAir := simd.reduce_or(eqMask) != 0
+								if anyAir {
+									isSurrounded = false
+									break
+								}
+							}
+							isSurrounded &= points[baseIndex + pointsNeighbourLeftCoords] != .Air
+							isSurrounded &= points[baseIndex + pointsNeighbourRightCoords] != .Air
+							if isSurrounded do continue
+
+						}
+
+
+						cornerIndices: #simd[8]i32
+						cornerArrayIndexes := baseIndex + cubeVertexLinearOffsets
+						cornersArrayPointTypes := #simd[8]u16 {
+							auto_cast points[simd.extract(cornerArrayIndexes, 0)],
+							auto_cast points[simd.extract(cornerArrayIndexes, 1)],
+							auto_cast points[simd.extract(cornerArrayIndexes, 2)],
+							auto_cast points[simd.extract(cornerArrayIndexes, 3)],
+							auto_cast points[simd.extract(cornerArrayIndexes, 4)],
+							auto_cast points[simd.extract(cornerArrayIndexes, 5)],
+							auto_cast points[simd.extract(cornerArrayIndexes, 6)],
+							auto_cast points[simd.extract(cornerArrayIndexes, 7)],
+						}
+						eqMask := simd.lanes_eq(cornersArrayPointTypes, pointTypeSimd)
+						// sum := simd.reduce_add_ordered(eqMask)
+
+						marchingCubeIndex: uint = 0
+						validCorners := 0
+						for localVert: u8 = 0; localVert < 8; localVert += 1 {
+							laneMatch := simd.extract(eqMask, localVert)
+							if laneMatch == 0 do continue
+							validCorners += 1
+							marchingCubeIndex |= 1 << localVert
+							vertIndex := simd.extract(cornerArrayIndexes, localVert)
+							#no_bounds_check existingVulkanIndex := mapper[vertIndex]
+
+							if existingVulkanIndex == -1 {
+
+								#no_bounds_check offset := cubeVertices[localVert]
+
+								coordWithoutJitter := [3]i32 {
+									worldX + offset.x,
+									yCoord + offset.y,
+									worldZ + offset.z,
+								}
+
 								finalPointCoord := [3]f32 {
 									f32(coordWithoutJitter.x),
 									f32(coordWithoutJitter.y),
 									f32(coordWithoutJitter.z),
 								}
 
-								staticVisiblePoints[staticVisiblePointsLen] = finalPointCoord
-								#no_bounds_check EXISTING_VERTICES_MAPPER[vertIndex] =
-									staticVisiblePointsLen
-								assert(
-									EXISTING_VERTICES_MAPPER[vertIndex] == staticVisiblePointsLen,
-								)
+								#no_bounds_check staticVisiblePoints[staticVisiblePointsLen] =
+									finalPointCoord
+
+								mapper[vertIndex] = staticVisiblePointsLen
 								staticVisiblePointsLen += 1
 							}
 						}
 
+						// for localVert: uint = 0; localVert < 8; localVert += 1 {
 
-					}
-					// if marchingCubeIndex != 255 do continue
-					// if marchingCubeIndex == 1 do continue
-					if validCorners < 3 do continue
-					// fmt.println("staticVisiblePoints", staticVisiblePoints)
-					assert(marchingCubeIndex <= uint(max(u8)))
-					#no_bounds_check indices := POINTS_TO_TRIANGLES_CONVERTER[marchingCubeIndex]
-					for i := 0; i < 36; i += 3 {
-						firstIndicesOffset := indices[i]
-						secondIndicesOffset := indices[i + 1]
-						thirdIndicesOffset := indices[i + 2]
+						// 	#no_bounds_check vertIndex :=
+						// 		baseIndex + cubeVertexLinearOffsets[localVert]
+						// 	cornerIndices[localVert] = vertIndex
 
-						if firstIndicesOffset == -1 {
-							assert(secondIndicesOffset == -1)
-							assert(thirdIndicesOffset == -1)
-							break
+						// 	#no_bounds_check pointAtOffset := points[vertIndex]
+
+						// 	if pointAtOffset == pointType {
+
+						// 		validCorners += 1
+						// 		marchingCubeIndex |= 1 << localVert
+
+						// 		#no_bounds_check existingVulkanIndex := mapper[vertIndex]
+
+						// 		if existingVulkanIndex == -1 {
+
+						// 			#no_bounds_check offset := cubeVertices[localVert]
+
+						// 			coordWithoutJitter := [3]i32 {
+						// 				worldX + offset.x,
+						// 				yCoord + offset.y,
+						// 				worldZ + offset.z,
+						// 			}
+
+						// 			finalPointCoord := [3]f32 {
+						// 				f32(coordWithoutJitter.x),
+						// 				f32(coordWithoutJitter.y),
+						// 				f32(coordWithoutJitter.z),
+						// 			}
+
+						// 			#no_bounds_check staticVisiblePoints[staticVisiblePointsLen] =
+						// 				finalPointCoord
+
+						// 			mapper[vertIndex] = staticVisiblePointsLen
+						// 			staticVisiblePointsLen += 1
+						// 		}
+						// 	}
+						// }
+
+						if validCorners < 3 do continue
+						// if marchingCubeIndex != 255 do continue
+						#no_bounds_check indices :=
+							POINTS_TO_TRIANGLES_CONVERTER[marchingCubeIndex] if y != (height - MIN_Y - 1) else POINTS_TO_TRIANGLES_CONVERTER_ALL_FACES[marchingCubeIndex]
+
+						for i := 0; i < len(indices); i += 3 {
+
+							#no_bounds_check firstOffset := indices[i]
+							#no_bounds_check secondOffset := indices[i + 1]
+							#no_bounds_check thirdOffset := indices[i + 2]
+
+
+							#no_bounds_check firstRealIndex := simd.extract(
+								cornerArrayIndexes,
+								firstOffset,
+							)
+							#no_bounds_check secondRealIndex := simd.extract(
+								cornerArrayIndexes,
+								secondOffset,
+							)
+							#no_bounds_check thirdRealIndex := simd.extract(
+								cornerArrayIndexes,
+								thirdOffset,
+							)
+
+							#no_bounds_check staticIndices[staticIndicesLen] = u32(
+								mapper[firstRealIndex],
+							)
+							#no_bounds_check staticIndices[staticIndicesLen + 1] = u32(
+								mapper[secondRealIndex],
+							)
+							#no_bounds_check staticIndices[staticIndicesLen + 2] = u32(
+								mapper[thirdRealIndex],
+							)
+
+							staticIndicesLen += 3
+
+							#no_bounds_check staticColors[staticColorsLen] =
+								Random_Colors_Per_Point_Type[pointType][staticIndicesLen % len(Random_Colors_Per_Point_Type[pointType])]
+
+							staticColorsLen += 1
 						}
-						offset1 := pointIndex + cubeVertices[firstIndicesOffset]
-						firstRealIndex := index_into_point_arrays(offset1)
-
-						offset2 := pointIndex + cubeVertices[secondIndicesOffset]
-
-						secondRealIndex := index_into_point_arrays(offset2)
-
-						offset3 := pointIndex + cubeVertices[thirdIndicesOffset]
-						thirdRealIndex := index_into_point_arrays(offset3)
-
-						assert(
-							chunk.points[firstRealIndex] != .Air &&
-							EXISTING_VERTICES_MAPPER[firstRealIndex] != -1,
-						)
-						assert(
-							chunk.points[secondRealIndex] != .Air &&
-							EXISTING_VERTICES_MAPPER[secondRealIndex] != -1,
-						)
-						assert(
-							chunk.points[thirdRealIndex] != .Air &&
-							EXISTING_VERTICES_MAPPER[thirdRealIndex] != -1,
-						)
-
-						#no_bounds_check firstVulkanIndices :=
-							EXISTING_VERTICES_MAPPER[firstRealIndex]
-
-						staticIndices[staticIndicesLen] = u32(firstVulkanIndices)
-
-						#no_bounds_check secondVulkanIndices :=
-							EXISTING_VERTICES_MAPPER[secondRealIndex]
-						staticIndices[staticIndicesLen + 1] = u32(secondVulkanIndices)
-
-						#no_bounds_check thirdVulkanIndices :=
-							EXISTING_VERTICES_MAPPER[thirdRealIndex]
-						staticIndices[staticIndicesLen + 2] = u32(thirdVulkanIndices)
-						staticIndicesLen += 3
-
-						staticColors[staticColorsLen] = rand.choice(
-							Random_Colors_Per_Point_Type[pointType][:],
-						)
-						staticColorsLen += 1
 					}
-
 				}
-
 			}
 		}
+
 		assert(staticVisiblePointsLen > 0)
 		assert(staticIndicesLen > 0)
 		assert(staticColorsLen > 0)
@@ -650,46 +721,56 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		chunk.totalPoints = u32(staticVisiblePointsLen)
 		chunk.totalIndices = u32(staticIndicesLen)
 
-		for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
-			assert(chunk.buffers.pointsBuffer[i].alloc != {})
-			assert(chunk.buffers.indices[i].alloc != {})
-			assert(chunk.buffers.colors[i].alloc != {})
+		{
+			tracy.Zone()
+			for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+				assert(chunk.buffers.pointsBuffer[i].alloc != {})
+				assert(chunk.buffers.indices[i].alloc != {})
+				assert(chunk.buffers.colors[i].alloc != {})
 
 
-			vertBufferPtr: rawptr
-			vk_chk(
-				vma.map_memory(vkAllocator, chunk.buffers.pointsBuffer[i].alloc, &vertBufferPtr),
-			)
-			mem.copy(
-				vertBufferPtr,
-				raw_data(staticVisiblePoints[0:staticVisiblePointsLen]),
-				staticVisiblePointsLen * size_of(staticVisiblePoints[0]),
-			)
-			vma.unmap_memory(vkAllocator, chunk.buffers.pointsBuffer[i].alloc)
+				vertBufferPtr: rawptr
+				vk_chk(
+					vma.map_memory(
+						vkAllocator,
+						chunk.buffers.pointsBuffer[i].alloc,
+						&vertBufferPtr,
+					),
+				)
+				mem.copy(
+					vertBufferPtr,
+					raw_data(staticVisiblePoints[0:staticVisiblePointsLen]),
+					staticVisiblePointsLen * size_of(staticVisiblePoints[0]),
+				)
+				vma.unmap_memory(vkAllocator, chunk.buffers.pointsBuffer[i].alloc)
 
 
-			indexBufferPtr: rawptr
-			vk_chk(vma.map_memory(vkAllocator, chunk.buffers.indices[i].alloc, &indexBufferPtr))
-			mem.copy(
-				indexBufferPtr,
-				raw_data(staticIndices[0:staticIndicesLen]),
-				staticIndicesLen * size_of(staticIndices[0]),
-			)
-			vma.unmap_memory(vkAllocator, chunk.buffers.indices[i].alloc)
+				indexBufferPtr: rawptr
+				vk_chk(
+					vma.map_memory(vkAllocator, chunk.buffers.indices[i].alloc, &indexBufferPtr),
+				)
+				mem.copy(
+					indexBufferPtr,
+					raw_data(staticIndices[0:staticIndicesLen]),
+					staticIndicesLen * size_of(staticIndices[0]),
+				)
+				vma.unmap_memory(vkAllocator, chunk.buffers.indices[i].alloc)
 
 
-			colorBuferPtr: rawptr
-			vk_chk(vma.map_memory(vkAllocator, chunk.buffers.colors[i].alloc, &colorBuferPtr))
-			mem.copy(
-				colorBuferPtr,
-				raw_data(staticColors[0:staticColorsLen]),
-				staticColorsLen * size_of(staticColors[0]),
-			)
-			vma.unmap_memory(vkAllocator, chunk.buffers.colors[i].alloc)
+				colorBuferPtr: rawptr
+				vk_chk(vma.map_memory(vkAllocator, chunk.buffers.colors[i].alloc, &colorBuferPtr))
+				mem.copy(
+					colorBuferPtr,
+					raw_data(staticColors[0:staticColorsLen]),
+					staticColorsLen * size_of(staticColors[0]),
+				)
+				vma.unmap_memory(vkAllocator, chunk.buffers.colors[i].alloc)
+			}
+
+
 		}
-
-
 	}
+
 }
 
 calculate_jitter :: proc(x, y, z: i32, seed: u64) -> [3]f32 {
@@ -708,9 +789,8 @@ calculate_jitter :: proc(x, y, z: i32, seed: u64) -> [3]f32 {
 
 
 chunks_shift_per_player_movement :: proc(c: ^Camera) {
-	when ENABLE_SPALL {
-		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
-	}
+	tracy.Zone()
+
 	xzOfCurrentCenterChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_STRIDE
 	xzOfPrevCenterChunk := Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos / CHUNK_STRIDE
 	if xzOfCurrentCenterChunk == xzOfPrevCenterChunk do return

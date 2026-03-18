@@ -24,7 +24,7 @@ Point_r: struct {
 when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	PointType :: f32
 } else {
-	PointType :: enum {
+	PointType :: enum u16 {
 		Air,
 		YellowDirt,
 		PurpleGround,
@@ -54,12 +54,19 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			{34.0 / 255.0, 17.0 / 255.0, 95.0 / 255.0, 1},
 		},
 		.LightPurpleGround = {
-			{141.0 / 255.0, 97.0 / 255.0, 237.0 / 255.0, 1},
-			{144.0 / 255.0, 100.0 / 255.0, 240.0 / 255.0, 1},
-			{138.0 / 255.0, 94.0 / 255.0, 234.0 / 255.0, 1},
-			{142.0 / 255.0, 98.0 / 255.0, 238.0 / 255.0, 1},
-			{143.0 / 255.0, 99.0 / 255.0, 239.0 / 255.0, 1},
+			{0, 0, 0, 1},
+			{0, 1, 0, 1},
+			{1, 0, 0, 1},
+			{1, 1, 0, 1},
+			{1, 1, 1, 1},
 		},
+		// .LightPurpleGround = {
+		// 	{141.0 / 255.0, 97.0 / 255.0, 237.0 / 255.0, 1},
+		// 	{144.0 / 255.0, 100.0 / 255.0, 240.0 / 255.0, 1},
+		// 	{138.0 / 255.0, 94.0 / 255.0, 234.0 / 255.0, 1},
+		// 	{142.0 / 255.0, 98.0 / 255.0, 238.0 / 255.0, 1},
+		// 	{143.0 / 255.0, 99.0 / 255.0, 239.0 / 255.0, 1},
+		// },
 		.BlueDiamond       = {
 			{0.0 / 255.0, 236.0 / 255.0, 231.0 / 255.0, 1},
 			{3.0 / 255.0, 241.0 / 255.0, 236.0 / 255.0, 1},
@@ -222,7 +229,7 @@ point_pipeline_init :: proc() -> (p: PipelineData) {
 				pRasterizationState = &vk.PipelineRasterizationStateCreateInfo {
 					sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 					lineWidth = 1.0,
-					cullMode = {.BACK},
+					cullMode = {},
 					frontFace = .CLOCKWISE,
 				},
 				pMultisampleState = &vk.PipelineMultisampleStateCreateInfo {

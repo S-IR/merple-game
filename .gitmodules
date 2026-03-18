@@ -1,3 +1,6 @@
 [submodule "modules/vma"]
 	path = modules/vma
 	url = https://github.com/Capati/odin-vma.git
+[submodule "modules/tracy"]
+	path = modules/tracy
+	url = https://github.com/oskarnp/odin-tracy
