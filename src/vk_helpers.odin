@@ -1,4 +1,5 @@
 package main
+import "../modules/tracy"
 import vma "../modules/vma"
 import "core:container/small_array"
 import "core:fmt"
@@ -56,6 +57,7 @@ CameraUBO :: struct {
 cameraBuffers := [MAX_FRAMES_IN_FLIGHT]VkBufferPoolElem{}
 
 vulkan_init :: proc() {
+	tracy.Zone()
 	sdl.Vulkan_LoadLibrary(nil)
 
 
@@ -64,6 +66,7 @@ vulkan_init :: proc() {
 	vk.load_proc_addresses_global(rawptr(vkGetProc))
 
 	{
+		tracy.Zone()
 		appInfo := vk.ApplicationInfo {
 			sType            = .APPLICATION_INFO,
 			pApplicationName = "Illuver",
@@ -92,6 +95,8 @@ vulkan_init :: proc() {
 	ensure(vkInstance != nil)
 
 	{
+		tracy.Zone()
+
 		deviceCount: u32 = 0
 		vk_chk(vk.EnumeratePhysicalDevices(vkInstance, &deviceCount, nil))
 		devices := make([]vk.PhysicalDevice, deviceCount, context.temp_allocator)
@@ -146,6 +151,8 @@ vulkan_init :: proc() {
 	// fmt.printfln("Selected device: %s", deviceProperties.properties.deviceName)
 
 	{
+		tracy.Zone()
+
 		queueFamilyCount: u32 = 0
 		vk.GetPhysicalDeviceQueueFamilyProperties(vkPhysicalDevice, &queueFamilyCount, nil)
 		queueFamilies := make([]vk.QueueFamilyProperties, queueFamilyCount, context.temp_allocator)
@@ -216,6 +223,8 @@ vulkan_init :: proc() {
 	ensure(vkDevice != {})
 
 	{
+		tracy.Zone()
+
 		vmaVulkanFunctions := vma.create_vulkan_functions()
 
 		vk_chk(
@@ -235,6 +244,7 @@ vulkan_init :: proc() {
 	ensure(vkAllocator != {})
 
 	{
+		tracy.Zone()
 
 		ensure(sdl.Vulkan_CreateSurface(window, vkInstance, nil, &vkSurface))
 		surfaceCaps: vk.SurfaceCapabilitiesKHR
@@ -286,10 +296,7 @@ vulkan_init :: proc() {
 					minImageCount = surfaceCaps.minImageCount,
 					imageFormat = vkSwapchainImageFormat,
 					imageColorSpace = preferredFormat.colorSpace,
-					imageExtent = {
-						width = surfaceCaps.currentExtent.width,
-						height = surfaceCaps.currentExtent.height,
-					},
+					imageExtent = vk_resolve_extent(surfaceCaps),
 					imageArrayLayers = 1,
 					imageUsage = {.COLOR_ATTACHMENT},
 					preTransform = {.IDENTITY},
@@ -330,6 +337,8 @@ vulkan_init :: proc() {
 
 
 	{
+		tracy.Zone()
+
 		depthFormatList := [?]vk.Format{.D32_SFLOAT, .D24_UNORM_S8_UINT}
 
 		for format in depthFormatList {
@@ -433,6 +442,8 @@ vulkan_init :: proc() {
 
 	// }
 	{
+		tracy.Zone()
+
 		semaphoreCI := vk.SemaphoreCreateInfo {
 			sType = .SEMAPHORE_CREATE_INFO,
 		}
@@ -459,6 +470,8 @@ vulkan_init :: proc() {
 	for i in vkFences do ensure(i != {})
 
 	{
+		tracy.Zone()
+
 		vk_chk(
 			vk.CreateCommandPool(
 				vkDevice,
@@ -488,6 +501,8 @@ vulkan_init :: proc() {
 	for i in vkDrawCommandBuffers do ensure(i != {})
 
 	{
+		tracy.Zone()
+
 		for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
 
 			vk_chk(
@@ -599,7 +614,7 @@ vulkan_cleanup :: proc() {
 
 vulkan_update_swapchain :: proc() {
 	if vkUpdateSwapchain == false do return
-	defer vkUpdateSwapchain = true
+	defer vkUpdateSwapchain = false
 	vk_chk(vk.DeviceWaitIdle(vkDevice))
 
 	surfaceCaps: vk.SurfaceCapabilitiesKHR
@@ -723,4 +738,14 @@ create_shader_module :: proc(device: vk.Device, code: []byte) -> vk.ShaderModule
 	vk_chk(res)
 
 	return shader_module
+}
+vk_resolve_extent :: proc(caps: vk.SurfaceCapabilitiesKHR) -> vk.Extent2D {
+	// 0xFFFFFFFF means the surface lets us pick; use the actual window size
+	if caps.currentExtent.width != max(u32) {
+		return caps.currentExtent
+	}
+	return {
+		width = clamp(screenWidth, caps.minImageExtent.width, caps.maxImageExtent.width),
+		height = clamp(screenHeight, caps.minImageExtent.height, caps.maxImageExtent.height),
+	}
 }

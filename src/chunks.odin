@@ -10,8 +10,12 @@ import "core:math/noise"
 import "core:math/rand"
 import "core:mem"
 import "core:mem/virtual"
+import vmem "core:mem/virtual"
+import "core:os"
 import "core:prof/spall"
 import "core:simd"
+import "core:sync"
+import "core:thread"
 import vk "vendor:vulkan"
 
 int3 :: [3]i32
@@ -36,6 +40,8 @@ VERTS_PER_Z_DIR: i32 : auto_cast (CHUNK_SIZE / WIDTH_OF_CELL)
 CUBES_PER_X_DIR: i32 : VERTS_PER_X_DIR - 1
 CUBES_PER_Y_DIR: i32 : VERTS_PER_Y_DIR - 1
 CUBES_PER_Z_DIR: i32 : VERTS_PER_Z_DIR - 1
+
+NUM_WORKER_THREADS := 4
 Chunk :: struct {
 	pos:          int2,
 	points:       [VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR]PointType,
@@ -50,6 +56,7 @@ Chunk :: struct {
 	alloc:        mem.Allocator,
 }
 
+
 // chunk_point_get :: proc(c: ^Chunk, x, y, z: i32) -> PointType {
 // 	return c.points[x * CUBES_PER_Y_DIR * CUBES_PER_Z_DIR + y * CUBES_PER_Z_DIR + z]
 // }
@@ -61,9 +68,30 @@ CHUNK_MIDDLE_X_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 CHUNK_MIDDLE_Z_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 
 ChunkAtTheCenter := int2{}
+
+WorldArena := vmem.Arena{}
+WorldAllocator := mem.Allocator{}
+
 chunks_init :: proc(c: ^Camera) {
 	centerChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_SIZE
 	half :: CHUNKS_PER_DIRECTION / 2
+
+
+	err := vmem.arena_init_growing(&WorldArena)
+	ensure(err == nil)
+	WorldAllocator = vmem.arena_allocator(&WorldArena)
+
+	chunkJobQueue = make([dynamic]ChunkJob, WorldAllocator)
+	chunkWorkerStates = make([dynamic]ChunkWorkerState, NUM_CORES - 1, WorldAllocator)
+	chunkWorkerThreads = make([dynamic]^thread.Thread, NUM_CORES - 1, WorldAllocator)
+
+	for &t, i in chunkWorkerThreads {
+		idx := new(int, WorldAllocator)
+		idx^ = i
+		t = thread.create(chunk_worker_thread)
+		t.data = idx
+		thread.start(t) // started once, runs forever until shutdown
+	}
 
 
 	for x in 0 ..< CHUNKS_PER_DIRECTION {
@@ -73,11 +101,15 @@ chunks_init :: proc(c: ^Camera) {
 			worldChunkCoordX := centerChunk[0] + relX
 			worldChunkCoordZ := centerChunk[1] + relZ
 			pos := int2{worldChunkCoordX * CHUNK_STRIDE, worldChunkCoordZ * CHUNK_STRIDE}
-			chunk_init(x, z, pos)
+			chunk_init_add_thread(x, z, pos)
+
 		}
 	}
+	sync.wait(&chunkWorkersWG)
+
 	ChunkAtTheCenter = Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos
 }
+
 
 VERT_STRIDE_X :: VERTS_PER_Y_DIR * VERTS_PER_Z_DIR
 VERT_STRIDE_Y :: VERTS_PER_Z_DIR
@@ -102,7 +134,11 @@ INDEX_TYPE_USED_IN_CHUNKS :: u32
 when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	chunk_init :: VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_chunk_init
 
-	VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
+	VISUAL_REPRESENTATION_OF_NOISE_FN_RUN_chunk_init :: proc(
+		xIdx, zIdx: int,
+		pos: int2,
+		state: ChunkWorkerState,
+	) {
 		chunk := &Chunks[xIdx][zIdx]
 		for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
 			if chunk.buffers.pointsBuffer[i].alloc != {} do continue
@@ -352,10 +388,10 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 	}
 } else {
-	chunk_init :: proc(xIdx, zIdx: int, pos: int2) {
+	chunk_init :: proc(state: ^ChunkWorkerState) {
 		tracy.Zone()
-
-		chunk := &Chunks[xIdx][zIdx]
+		pos := state.pos
+		chunk := &Chunks[state.xIdx][state.zIdx]
 		{
 			tracy.Zone()
 			for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
@@ -416,30 +452,15 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			free_all(chunk.alloc)
 		}
 
-		staticVisiblePoints := make(
-			[dynamic]float3,
-			len = MAX_POINTS,
-			allocator = context.temp_allocator,
-		)
+
 		staticVisiblePointsLen: int = 0
 
 
-		staticIndices := make(
-			[dynamic]INDEX_TYPE_USED_IN_CHUNKS,
-			len = MAX_INDICES,
-			allocator = context.temp_allocator,
-		)
 		staticIndicesLen: int = 0
 
-		staticColors := make([dynamic]float4, len = MAX_COLORS, allocator = context.temp_allocator)
 		staticColorsLen: int = 0
 
-		EXISTING_VERTICES_MAPPER := make(
-			[dynamic]int,
-			len = VERTS_PER_X_DIR * VERTS_PER_Y_DIR * VERTS_PER_Z_DIR,
-			allocator = context.temp_allocator,
-		)
-		for &v in EXISTING_VERTICES_MAPPER do v = -1
+
 		chunk.pos = pos
 		tracy.ZoneEnd(allocZoneCtx)
 
@@ -452,37 +473,32 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		// chunkZSimd := #simd[4]f64{posZF64, posZF64, posZF64, posZF64}
 
 		// isCrystalblooomArr := [VERTS_PER_X_DIR * VERTS_PER_Z_DIR]bool{}
-		heightMap := make(
-			[dynamic]i32,
-			len = VERTS_PER_X_DIR * VERTS_PER_Z_DIR,
-			allocator = context.temp_allocator,
-		)
-
+		state.vertexMapper = {}
 		{
 			tracy.Zone()
 			BIOME_THRESHOLD :: 20
 			for x: i32 = 0; x < VERTS_PER_X_DIR; x += 1 {
+				worldX := pos[0] + x
 				for z: i32 = 0; z < VERTS_PER_Z_DIR; z += 1 {
-					worldX := pos[0] + x
 					worldZ := pos[1] + z
 					biomeWeights := get_biome_weights(worldX, worldZ, seed)
 					height: i32 = 0
 					for weight, biome in biomeWeights {
 						if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
 						height += i32(
-							biome_height(biome, worldX, worldZ, seed) * (f32(weight) / 255.0),
+							biome_height(biome, worldX, worldZ, seed) * (f32(weight) * inv255),
 						)
 						height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
 					}
 					assert(height >= MIN_Y)
 					// isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] =
 					// 	biomeWeights[.Crystalbloom] > BIOME_THRESHOLD
-					heightMap[x * VERTS_PER_Z_DIR + z] = height
+					state.heightMap[x * VERTS_PER_Z_DIR + z] = height
 
 					for yCoord: i32 = MIN_Y; yCoord <= height; yCoord += 1 {
 						y := yCoord - MIN_Y
 						idx := index_into_point_arrays(x, y, z)
-						worldXYZ := chunkXYZI32 + [3]i32{x, yCoord, z}
+						worldXYZ := [3]i32{worldX, yCoord, worldZ}
 						pointType := procedural_point_type(
 							biomeWeights,
 							worldXYZ.x,
@@ -516,7 +532,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			}
 
 			points := &chunk.points
-			mapper := &EXISTING_VERTICES_MAPPER
+			mapper := &state.vertexMapper
 
 			for x: i32 = 0; x < VERTS_PER_X_DIR - 1; x += 1 {
 				worldX := pos[0] + x
@@ -525,7 +541,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 					isEdgeZ := z == 0 || z == VERTS_PER_Z_DIR - 2
 					worldZ := pos[1] + z
-					#no_bounds_check height := heightMap[x * VERTS_PER_Z_DIR + z]
+					#no_bounds_check height := state.heightMap[x * VERTS_PER_Z_DIR + z]
 
 
 					for y: i32 = 0; y < height - MIN_Y; y += 1 {
@@ -534,7 +550,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						if pointType == .Air do continue
 
 						isEdgeY := y == 0 || y == height - MIN_Y - 1
-						isEdge := isEdgeX || isEdgeY || isEdgeZ
+						isChunkEdge := isEdgeX || isEdgeY || isEdgeZ
 						yCoord := y + MIN_Y
 
 						pointTypeSimd := #simd[8]u16 {
@@ -547,20 +563,11 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 							u16(pointType),
 							u16(pointType),
 						}
-						if !isEdge {
+						if !isChunkEdge {
 							isSurrounded := true
 							for p in pointsSimdNeighbors {
 								neighbourEdge := baseIndex + p
-								neighbour: #simd[8]u16 = {
-									auto_cast points[simd.extract(neighbourEdge, 0)],
-									auto_cast points[simd.extract(neighbourEdge, 1)],
-									auto_cast points[simd.extract(neighbourEdge, 2)],
-									auto_cast points[simd.extract(neighbourEdge, 3)],
-									auto_cast points[simd.extract(neighbourEdge, 4)],
-									auto_cast points[simd.extract(neighbourEdge, 5)],
-									auto_cast points[simd.extract(neighbourEdge, 6)],
-									auto_cast points[simd.extract(neighbourEdge, 7)],
-								}
+								neighbour := cast(#simd[8]u16)neighbourEdge
 								eqMask := simd.lanes_eq(neighbour, airSimd)
 								anyAir := simd.reduce_or(eqMask) != 0
 								if anyAir {
@@ -600,7 +607,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 							vertIndex := simd.extract(cornerArrayIndexes, localVert)
 							#no_bounds_check existingVulkanIndex := mapper[vertIndex]
 
-							if existingVulkanIndex == -1 {
+							if existingVulkanIndex == nil {
 
 								#no_bounds_check offset := cubeVertices[localVert]
 
@@ -609,14 +616,13 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 									yCoord + offset.y,
 									worldZ + offset.z,
 								}
-
 								finalPointCoord := [3]f32 {
 									f32(coordWithoutJitter.x),
 									f32(coordWithoutJitter.y),
 									f32(coordWithoutJitter.z),
 								}
 
-								#no_bounds_check staticVisiblePoints[staticVisiblePointsLen] =
+								#no_bounds_check state.visiblePoints[staticVisiblePointsLen] =
 									finalPointCoord
 
 								mapper[vertIndex] = staticVisiblePointsLen
@@ -666,8 +672,9 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 
 						if validCorners < 3 do continue
 						// if marchingCubeIndex != 255 do continue
+
 						#no_bounds_check indices :=
-							POINTS_TO_TRIANGLES_CONVERTER[marchingCubeIndex] if y != (height - MIN_Y - 1) else POINTS_TO_TRIANGLES_CONVERTER_ALL_FACES[marchingCubeIndex]
+							POINTS_TO_TRIANGLES_CONVERTER_ALL_FACES[marchingCubeIndex]
 
 						for i := 0; i < len(indices); i += 3 {
 
@@ -688,21 +695,24 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 								cornerArrayIndexes,
 								thirdOffset,
 							)
+							assert(mapper[firstRealIndex] != nil)
+							#no_bounds_check state.indices[staticIndicesLen] = u32(
+								mapper[firstRealIndex].(int),
+							)
 
-							#no_bounds_check staticIndices[staticIndicesLen] = u32(
-								mapper[firstRealIndex],
+							assert(mapper[secondRealIndex] != nil)
+
+							#no_bounds_check state.indices[staticIndicesLen + 1] = u32(
+								mapper[secondRealIndex].(int),
 							)
-							#no_bounds_check staticIndices[staticIndicesLen + 1] = u32(
-								mapper[secondRealIndex],
-							)
-							#no_bounds_check staticIndices[staticIndicesLen + 2] = u32(
-								mapper[thirdRealIndex],
+							#no_bounds_check state.indices[staticIndicesLen + 2] = u32(
+								mapper[thirdRealIndex].(int),
 							)
 
 							staticIndicesLen += 3
 
-							#no_bounds_check staticColors[staticColorsLen] =
-								Random_Colors_Per_Point_Type[pointType][staticIndicesLen % len(Random_Colors_Per_Point_Type[pointType])]
+							#no_bounds_check state.colors[staticColorsLen] =
+								Random_Colors_Per_Point_Type[pointType][(x + y + z) % len(Random_Colors_Per_Point_Type[pointType])]
 
 							staticColorsLen += 1
 						}
@@ -739,8 +749,8 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 				)
 				mem.copy(
 					vertBufferPtr,
-					raw_data(staticVisiblePoints[0:staticVisiblePointsLen]),
-					staticVisiblePointsLen * size_of(staticVisiblePoints[0]),
+					raw_data(state.visiblePoints[0:staticVisiblePointsLen]),
+					staticVisiblePointsLen * size_of(state.visiblePoints[0]),
 				)
 				vma.unmap_memory(vkAllocator, chunk.buffers.pointsBuffer[i].alloc)
 
@@ -751,8 +761,8 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 				)
 				mem.copy(
 					indexBufferPtr,
-					raw_data(staticIndices[0:staticIndicesLen]),
-					staticIndicesLen * size_of(staticIndices[0]),
+					raw_data(state.indices[0:staticIndicesLen]),
+					staticIndicesLen * size_of(state.indices[0]),
 				)
 				vma.unmap_memory(vkAllocator, chunk.buffers.indices[i].alloc)
 
@@ -761,8 +771,8 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 				vk_chk(vma.map_memory(vkAllocator, chunk.buffers.colors[i].alloc, &colorBuferPtr))
 				mem.copy(
 					colorBuferPtr,
-					raw_data(staticColors[0:staticColorsLen]),
-					staticColorsLen * size_of(staticColors[0]),
+					raw_data(state.colors[0:staticColorsLen]),
+					staticColorsLen * size_of(state.colors[0]),
 				)
 				vma.unmap_memory(vkAllocator, chunk.buffers.colors[i].alloc)
 			}
@@ -820,7 +830,7 @@ chunks_shift_per_player_movement :: proc(c: ^Camera) {
 						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
 						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
 					}
-					chunk_init(CHUNKS_PER_DIRECTION - 1, z, pos)
+					chunk_init_add_thread(CHUNKS_PER_DIRECTION - 1, z, pos)
 				}
 			} else {
 				for x := CHUNKS_PER_DIRECTION - 1; x > 0; x -= 1 {
@@ -843,7 +853,7 @@ chunks_shift_per_player_movement :: proc(c: ^Camera) {
 						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
 						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
 					}
-					chunk_init(0, z, pos)
+					chunk_init_add_thread(0, z, pos)
 				}
 			}
 		}
@@ -873,7 +883,7 @@ chunks_shift_per_player_movement :: proc(c: ^Camera) {
 						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
 						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
 					}
-					chunk_init(x, CHUNKS_PER_DIRECTION - 1, pos)
+					chunk_init_add_thread(x, CHUNKS_PER_DIRECTION - 1, pos)
 				}
 			} else {
 				for z := CHUNKS_PER_DIRECTION - 1; z > 0; z -= 1 {
@@ -896,11 +906,13 @@ chunks_shift_per_player_movement :: proc(c: ^Camera) {
 						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
 						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
 					}
-					chunk_init(x, 0, pos)
+					chunk_init_add_thread(x, 0, pos)
 				}
 			}
 		}
 	}
+	sync.wait(&chunkWorkersWG)
+
 }
 chunks_draw :: proc(
 	cb: vk.CommandBuffer,
@@ -972,14 +984,28 @@ chunks_draw :: proc(
 	}
 }
 
-chunks_release :: proc() {
+chunks_destroy :: proc() {
+	chunkShutdown = true
+	for _ in chunkWorkerThreads {
+		sync.sema_post(&chunkJobSema)
+	}
+
+	for t in chunkWorkerThreads {
+		thread.join(t)
+		thread.destroy(t)
+	}
+
 	for &chunkX in Chunks {
 		for &chunk in chunkX {
-			chunk_discard(&chunk)
+			chunk_destroy(&chunk)
 		}
 	}
+
+	vmem.arena_destroy(&WorldArena)
+
+
 }
-chunk_discard :: proc(chunk: ^Chunk) {
+chunk_destroy :: proc(chunk: ^Chunk) {
 	assert(chunk != nil)
 
 	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {

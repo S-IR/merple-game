@@ -73,7 +73,7 @@ get_biome_selector :: proc(x, y, z: i32, seed: u64) -> f32 {
 		),
 	)
 }
-
+inv255 :: 1.0 / 255.0
 when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	procedural_point_type :: proc(
 		weights: BiomeWeights,
@@ -85,7 +85,7 @@ when !VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		cumulator: f32 = 0
 		for weight, biome in weights {
 			if weight < MIN_BIOME_WEIGHT_TO_NOT_IGNORE do continue
-			prob := f32(weight) / 255.0
+			prob := f32(weight) * inv255
 			cumulator += prob
 			if selector < cumulator {
 				return biome_point_type(biome, x, y, z, topY, seed)

@@ -6,6 +6,7 @@ import "core:c"
 import "core:fmt"
 import "core:math/rand"
 import "core:mem"
+import "core:os"
 import "core:path/filepath"
 import "core:prof/spall"
 import "core:sync"
@@ -90,16 +91,21 @@ main :: proc() {
 		}
 
 	}
-	sdl_ensure(sdl.Init({.VIDEO, .EVENTS}))
-	window = sdl.CreateWindow(
-		"Illuver",
-		i32(screenWidth),
-		i32(screenHeight),
-		{.RESIZABLE, .VULKAN},
-	)
-	sdl_ensure(window != nil)
+	NUM_CORES = os.get_processor_core_count()
+	{
+		tracy.Zone()
+		sdl_ensure(sdl.Init({.VIDEO, .EVENTS}))
+		window = sdl.CreateWindow(
+			"Illuver",
+			i32(screenWidth),
+			i32(screenHeight),
+			{.RESIZABLE, .VULKAN, .ALWAYS_ON_TOP},
+		)
+		sdl_ensure(window != nil)
+		sdl.SetLogPriorities(.WARN)
+
+	}
 	defer sdl.DestroyWindow(window)
-	sdl.SetLogPriorities(.WARN)
 
 	// device = sdl.CreateGPUDevice({.SPIRV}, true, nil)
 	vulkan_init()
@@ -109,8 +115,14 @@ main :: proc() {
 
 	// sdl_ensure(sdl.ClaimWindowForGPUDevice(device, window) != false)
 
+
+	chunks_init(&camera)
+	defer chunks_destroy()
+
+
 	pointPipeline := point_pipeline_init()
 	defer pipeline_data_delete(pointPipeline)
+
 
 	e: sdl.Event
 	quit := false
@@ -129,9 +141,6 @@ main :: proc() {
 	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
 	// camera = Camera_new(pos = middleOfMiddleChunkPos)
 	camera = Camera_new(pos = {0, 0, -2}, front = {0, 0, 1})
-
-	chunks_init(&camera)
-	defer chunks_release()
 
 	free_all(context.temp_allocator)
 	defer vk.DeviceWaitIdle(vkDevice)
@@ -189,7 +198,7 @@ main :: proc() {
 
 		Camera_process_keyboard_movement(&camera)
 		chunks_shift_per_player_movement(&camera)
-
+		fmt.println("camera", camera.pos)
 		view, proj := Camera_view_proj(&camera)
 		cameraPtr: rawptr
 		vma.map_memory(vkAllocator, cameraBuffers[vkFrameIndex].alloc, &cameraPtr)
