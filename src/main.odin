@@ -140,7 +140,7 @@ main :: proc() {
 	middleOfChunksInNormalCoords := f32((CHUNKS_PER_DIRECTION / 2)) * CHUNK_SIZE + CHUNK_SIZE / 2
 	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
 	// camera = Camera_new(pos = middleOfMiddleChunkPos)
-	camera = Camera_new(pos = {0, 0, -2}, front = {0, 0, 1})
+	camera = Camera_new(pos = {-1595.5656, 83.125778, -757.51514}, front = {0, 0, 1})
 
 	free_all(context.temp_allocator)
 	defer vk.DeviceWaitIdle(vkDevice)

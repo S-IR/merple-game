@@ -392,6 +392,9 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 		tracy.Zone()
 		pos := state.pos
 		chunk := &Chunks[state.xIdx][state.zIdx]
+		if pos.x == -1665 && pos.y == -795 {
+			fmt.println("hereS")
+		}
 		{
 			tracy.Zone()
 			for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
@@ -488,9 +491,9 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						height += i32(
 							biome_height(biome, worldX, worldZ, seed) * (f32(weight) * inv255),
 						)
-						height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
 					}
-					assert(height >= MIN_Y)
+					height = math.clamp(height, MIN_Y + 1, MAX_Y - 1)
+					assert(height > MIN_Y + 1)
 					// isCrystalblooomArr[x * VERTS_PER_Z_DIR + z] =
 					// 	biomeWeights[.Crystalbloom] > BIOME_THRESHOLD
 					state.heightMap[x * VERTS_PER_Z_DIR + z] = height
@@ -499,14 +502,15 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						y := yCoord - MIN_Y
 						idx := index_into_point_arrays(x, y, z)
 						worldXYZ := [3]i32{worldX, yCoord, worldZ}
-						pointType := procedural_point_type(
-							biomeWeights,
-							worldXYZ.x,
-							worldXYZ.y,
-							worldXYZ.z,
-							height,
-							seed,
-						)
+						// pointType := procedural_point_type(
+						// 	biomeWeights,
+						// 	worldXYZ.x,
+						// 	worldXYZ.y,
+						// 	worldXYZ.z,
+						// 	height,
+						// 	seed,
+						// )
+						pointType := PointType.LightPurpleGround
 
 						chunk.points[idx] = pointType
 
@@ -515,7 +519,7 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 			}
 
 		}
-
+		assert(chunk.points != {})
 		{
 			tracy.Zone()
 

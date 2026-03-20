@@ -216,6 +216,11 @@ get_biome_weights :: proc(x, z: i32, seed: u64) -> (biomeWeights: BiomeWeights) 
 			biomeWeights[entries[i].biome] += 1
 		}
 	}
+	when ODIN_DEBUG {
+		sum: u8 = 0
+		for w, _ in biomeWeights do sum += w
+		assert(sum == 255)
+	}
 	return biomeWeights
 	// v = (v + 1.0) * 0.5
 
