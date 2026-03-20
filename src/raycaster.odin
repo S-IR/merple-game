@@ -19,8 +19,7 @@ raycast_get_viewed_point :: proc(c: ^Camera) -> (closestPoint: PointType, found:
 	potentialChunks := make([dynamic]ChunkInfo, context.temp_allocator)
 
 	for &chunkX in Chunks {
-		for &chunk_ in chunkX {
-			chunk := &chunk_
+		for &chunk in chunkX {
 			boxMin := [3]f32{f32(chunk.pos[0]), f32(MIN_Y), f32(chunk.pos[1])}
 			boxMax :=
 				boxMin + [3]f32{f32(VERTS_PER_X_DIR), f32(VERTS_PER_Y_DIR), f32(VERTS_PER_Z_DIR)}

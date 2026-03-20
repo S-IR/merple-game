@@ -63,7 +63,7 @@ Chunk :: struct {
 
 CHUNKS_PER_DIRECTION :: 10
 
-Chunks := [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]Chunk{}
+Chunks := [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]^Chunk{}
 CHUNK_MIDDLE_X_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 CHUNK_MIDDLE_Z_INDEX :: (CHUNKS_PER_DIRECTION / 2)
 
@@ -96,6 +96,8 @@ chunks_init :: proc(c: ^Camera) {
 
 	for x in 0 ..< CHUNKS_PER_DIRECTION {
 		for z in 0 ..< CHUNKS_PER_DIRECTION {
+			Chunks[x][z] = &chunkPool[x][z]
+
 			relX := i32(x - half)
 			relZ := i32(z - half)
 			worldChunkCoordX := centerChunk[0] + relX
@@ -389,10 +391,14 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 	}
 } else {
 	chunk_init :: proc(state: ^ChunkWorkerState) {
+		fmt.println("chunk init called with pos", state.pos)
+		assert(state.xIdx < CHUNKS_PER_DIRECTION)
+		assert(state.zIdx < CHUNKS_PER_DIRECTION)
+
 		tracy.Zone()
 		pos := state.pos
-		chunk := &Chunks[state.xIdx][state.zIdx]
-		if pos.x == -1665 && pos.y == -795 {
+		chunk := Chunks[state.xIdx][state.zIdx]
+		if pos.x == 255 && pos.y == 255 {
 			fmt.println("hereS")
 		}
 		{
@@ -502,15 +508,15 @@ when VISUAL_REPRESENTATION_OF_NOISE_FN_RUN {
 						y := yCoord - MIN_Y
 						idx := index_into_point_arrays(x, y, z)
 						worldXYZ := [3]i32{worldX, yCoord, worldZ}
-						// pointType := procedural_point_type(
-						// 	biomeWeights,
-						// 	worldXYZ.x,
-						// 	worldXYZ.y,
-						// 	worldXYZ.z,
-						// 	height,
-						// 	seed,
-						// )
-						pointType := PointType.LightPurpleGround
+						pointType := procedural_point_type(
+							biomeWeights,
+							worldXYZ.x,
+							worldXYZ.y,
+							worldXYZ.z,
+							height,
+							seed,
+						)
+						// pointType := PointType.LightPurpleGround
 
 						chunk.points[idx] = pointType
 
@@ -801,122 +807,101 @@ calculate_jitter :: proc(x, y, z: i32, seed: u64) -> [3]f32 {
 	return {fx, fy, fz}
 }
 
+chunkPool: [CHUNKS_PER_DIRECTION][CHUNKS_PER_DIRECTION]Chunk
 
 chunks_shift_per_player_movement :: proc(c: ^Camera) {
-	tracy.Zone()
-
 	xzOfCurrentCenterChunk := int2{i32(c.pos.x), i32(c.pos.z)} / CHUNK_STRIDE
 	xzOfPrevCenterChunk := Chunks[CHUNK_MIDDLE_X_INDEX][CHUNK_MIDDLE_Z_INDEX].pos / CHUNK_STRIDE
 	if xzOfCurrentCenterChunk == xzOfPrevCenterChunk do return
 	delta := xzOfCurrentCenterChunk - xzOfPrevCenterChunk
 	half := CHUNKS_PER_DIRECTION / 2
-
 	if delta.x != 0 {
-		count := abs(delta.x)
-		for i in 0 ..< count {
-			if delta.x > 0 {
-				for x in 0 ..< CHUNKS_PER_DIRECTION - 1 {
-					for z in 0 ..< CHUNKS_PER_DIRECTION {
-						firstBuffers := Chunks[x][z].buffers
-						secondBuffers := Chunks[x + 1][z].buffers
+		shift := abs(delta.x) % CHUNKS_PER_DIRECTION
+		if shift == 0 do shift = CHUNKS_PER_DIRECTION
+		positive := delta.x > 0
+		for _ in 0 ..< shift {
+			for z in 0 ..< CHUNKS_PER_DIRECTION {
+				if positive {
+					temp := Chunks[0][z]
+					for x in 0 ..< CHUNKS_PER_DIRECTION - 1 {
 						Chunks[x][z] = Chunks[x + 1][z]
-						Chunks[x][z].buffers, Chunks[x + 1][z].buffers =
-							secondBuffers, firstBuffers
-						Chunks[x + 1][z].points = {}
-						Chunks[x + 1][z].arena = {}
-						Chunks[x + 1][z].alloc = {}
 					}
-				}
-				for z in 0 ..< CHUNKS_PER_DIRECTION {
-					relX := i32(CHUNKS_PER_DIRECTION - 1 - half) + i32(i)
-					relZ := i32(z - half)
-					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
-						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
-					}
-					chunk_init_add_thread(CHUNKS_PER_DIRECTION - 1, z, pos)
-				}
-			} else {
-				for x := CHUNKS_PER_DIRECTION - 1; x > 0; x -= 1 {
-					for z in 0 ..< CHUNKS_PER_DIRECTION {
-						firstBuffers := Chunks[x][z].buffers
-						secondBuffers := Chunks[x - 1][z].buffers
+					Chunks[CHUNKS_PER_DIRECTION - 1][z] = temp
+				} else {
+					temp := Chunks[CHUNKS_PER_DIRECTION - 1][z]
+					for x := CHUNKS_PER_DIRECTION - 1; x > 0; x -= 1 {
 						Chunks[x][z] = Chunks[x - 1][z]
-						Chunks[x][z].buffers, Chunks[x - 1][z].buffers =
-							secondBuffers, firstBuffers
-
-						Chunks[x - 1][z].points = {}
-						Chunks[x - 1][z].arena = {}
-						Chunks[x - 1][z].alloc = {}
 					}
-				}
-				for z in 0 ..< CHUNKS_PER_DIRECTION {
-					relX := i32(0 - half) - i32(i)
-					relZ := i32(z - half)
-					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
-						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
-					}
-					chunk_init_add_thread(0, z, pos)
+					Chunks[0][z] = temp
 				}
 			}
 		}
+		for col in 0 ..< shift {
+			xIdx := int(CHUNKS_PER_DIRECTION - 1 - col if positive else col)
+			for z in 0 ..< CHUNKS_PER_DIRECTION {
+				chunk := Chunks[xIdx][z]
+				chunk.points = {}
+				if chunk.alloc != {} {
+					free_all(chunk.alloc)
+				}
+				chunk.arena = {}
+				chunk.alloc = {}
+				chunk.totalPoints = 0
+				chunk.totalIndices = 0
+				relX := i32(xIdx - half)
+				relZ := i32(z - half)
+				pos := int2 {
+					(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
+					(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
+				}
+				chunk_init_add_thread(xIdx, z, pos)
+			}
+		}
 	}
-
 	if delta[1] != 0 {
-		count := abs(delta[1])
-		for i in 0 ..< count {
-			if delta[1] > 0 {
-				for z in 0 ..< CHUNKS_PER_DIRECTION - 1 {
-					for x in 0 ..< CHUNKS_PER_DIRECTION {
-						firstBuffers := Chunks[x][z].buffers
-						secondBuffers := Chunks[x][z + 1].buffers
+		shift := abs(delta[1]) % CHUNKS_PER_DIRECTION
+		if shift == 0 do shift = CHUNKS_PER_DIRECTION
+		positive := delta[1] > 0
+		for _ in 0 ..< shift {
+			for x in 0 ..< CHUNKS_PER_DIRECTION {
+				if positive {
+					temp := Chunks[x][0]
+					for z in 0 ..< CHUNKS_PER_DIRECTION - 1 {
 						Chunks[x][z] = Chunks[x][z + 1]
-						Chunks[x][z].buffers, Chunks[x][z + 1].buffers =
-							secondBuffers, firstBuffers
-
-						Chunks[x][z + 1].points = {}
-						Chunks[x][z + 1].arena = {}
-						Chunks[x][z + 1].alloc = {}
 					}
-				}
-				for x in 0 ..< CHUNKS_PER_DIRECTION {
-					relX := i32(x - half)
-					relZ := i32(CHUNKS_PER_DIRECTION - 1 - half) + i32(i)
-					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
-						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
-					}
-					chunk_init_add_thread(x, CHUNKS_PER_DIRECTION - 1, pos)
-				}
-			} else {
-				for z := CHUNKS_PER_DIRECTION - 1; z > 0; z -= 1 {
-					for x in 0 ..< CHUNKS_PER_DIRECTION {
-						firstBuffers := Chunks[x][z].buffers
-						secondBuffers := Chunks[x][z - 1].buffers
+					Chunks[x][CHUNKS_PER_DIRECTION - 1] = temp
+				} else {
+					temp := Chunks[x][CHUNKS_PER_DIRECTION - 1]
+					for z := CHUNKS_PER_DIRECTION - 1; z > 0; z -= 1 {
 						Chunks[x][z] = Chunks[x][z - 1]
-						Chunks[x][z].buffers, Chunks[x][z - 1].buffers =
-							secondBuffers, firstBuffers
-
-						Chunks[x][z - 1].points = {}
-						Chunks[x][z - 1].arena = {}
-						Chunks[x][z - 1].alloc = {}
 					}
+					Chunks[x][0] = temp
 				}
-				for x in 0 ..< CHUNKS_PER_DIRECTION {
-					relX := i32(x - half)
-					relZ := i32(0 - half) - i32(i)
-					pos := int2 {
-						(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
-						(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
-					}
-					chunk_init_add_thread(x, 0, pos)
+			}
+		}
+		for row in 0 ..< shift {
+			zIdx := int(CHUNKS_PER_DIRECTION - 1 - row if positive else row)
+			for x in 0 ..< CHUNKS_PER_DIRECTION {
+				chunk := Chunks[x][zIdx]
+				chunk.points = {}
+				if chunk.alloc != {} {
+					free_all(chunk.alloc)
 				}
+				chunk.arena = {}
+				chunk.alloc = {}
+				chunk.totalPoints = 0
+				chunk.totalIndices = 0
+				relX := i32(x - half)
+				relZ := i32(zIdx - half)
+				pos := int2 {
+					(xzOfCurrentCenterChunk[0] + relX) * CHUNK_STRIDE,
+					(xzOfCurrentCenterChunk[1] + relZ) * CHUNK_STRIDE,
+				}
+				chunk_init_add_thread(x, zIdx, pos)
 			}
 		}
 	}
 	sync.wait(&chunkWorkersWG)
-
 }
 chunks_draw :: proc(
 	cb: vk.CommandBuffer,
@@ -929,9 +914,9 @@ chunks_draw :: proc(
 	for x in 0 ..< len(Chunks) {
 		for y in 0 ..< len(Chunks[0]) {
 
-			chunk := &Chunks[x][y]
+			chunk := Chunks[x][y]
 			// if chunk.pos != {0, 0} do continue
-			if !is_chunk_in_camera_frustrum(chunk.pos, &camera) do continue
+			// if !is_chunk_in_camera_frustrum(chunk.pos, &camera) do continue
 			if chunk.totalIndices == 0 do continue
 
 
@@ -1001,7 +986,7 @@ chunks_destroy :: proc() {
 
 	for &chunkX in Chunks {
 		for &chunk in chunkX {
-			chunk_destroy(&chunk)
+			chunk_destroy(chunk)
 		}
 	}
 

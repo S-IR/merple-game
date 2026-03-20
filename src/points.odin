@@ -229,7 +229,7 @@ point_pipeline_init :: proc() -> (p: PipelineData) {
 				pRasterizationState = &vk.PipelineRasterizationStateCreateInfo {
 					sType = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 					lineWidth = 1.0,
-					cullMode = {.BACK},
+					cullMode = {},
 					frontFace = .CLOCKWISE,
 				},
 				pMultisampleState = &vk.PipelineMultisampleStateCreateInfo {

@@ -99,7 +99,7 @@ main :: proc() {
 			"Illuver",
 			i32(screenWidth),
 			i32(screenHeight),
-			{.RESIZABLE, .VULKAN, .ALWAYS_ON_TOP},
+			{.RESIZABLE, .VULKAN},
 		)
 		sdl_ensure(window != nil)
 		sdl.SetLogPriorities(.WARN)
@@ -115,6 +115,9 @@ main :: proc() {
 
 	// sdl_ensure(sdl.ClaimWindowForGPUDevice(device, window) != false)
 
+	middleOfChunksInNormalCoords := f32((CHUNKS_PER_DIRECTION / 2)) * CHUNK_SIZE + CHUNK_SIZE / 2
+	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
+	camera = Camera_new(pos = middleOfMiddleChunkPos)
 
 	chunks_init(&camera)
 	defer chunks_destroy()
@@ -137,10 +140,10 @@ main :: proc() {
 	prevScreenWidth := screenWidth
 	prevScreenHeight := screenHeight
 	rand.reset(seed)
-	middleOfChunksInNormalCoords := f32((CHUNKS_PER_DIRECTION / 2)) * CHUNK_SIZE + CHUNK_SIZE / 2
-	middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
+	// middleOfChunksInNormalCoords := f32((CHUNKS_PER_DIRECTION / 2)) * CHUNK_SIZE + CHUNK_SIZE / 2
+	// middleOfMiddleChunkPos := float3{middleOfChunksInNormalCoords, 0, middleOfChunksInNormalCoords}
 	// camera = Camera_new(pos = middleOfMiddleChunkPos)
-	camera = Camera_new(pos = {-1595.5656, 83.125778, -757.51514}, front = {0, 0, 1})
+	// camera = Camera_new(pos = {-1595.5656, 83.125778, -757.51514}, front = {0, 0, 1})
 
 	free_all(context.temp_allocator)
 	defer vk.DeviceWaitIdle(vkDevice)
@@ -198,7 +201,7 @@ main :: proc() {
 
 		Camera_process_keyboard_movement(&camera)
 		chunks_shift_per_player_movement(&camera)
-		fmt.println("camera", camera.pos)
+		// fmt.println("camera", camera.pos)
 		view, proj := Camera_view_proj(&camera)
 		cameraPtr: rawptr
 		vma.map_memory(vkAllocator, cameraBuffers[vkFrameIndex].alloc, &cameraPtr)

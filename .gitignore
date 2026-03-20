@@ -3,3 +3,4 @@ build/*
 *.pdb
 *.dll
 *.exe
+cache/
